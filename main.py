@@ -78,7 +78,9 @@ def ncs2zarr(nc_paths, zarr_path, chunk_num=(64, 8, 8)):
 
         # Escribir el dataset al Zarr en el grupo correspondiente
         zarr_group = os.path.join('/', var)
-        ds.chunk({time_dim: chunk_sizes[0], lat_dim: chunk_sizes[1], lon_dim: chunk_sizes[2]}).to_zarr(store, group=zarr_group, mode='w')
+        ds[var].chunk({time_dim: chunk_sizes[0], lat_dim: chunk_sizes[1], lon_dim: chunk_sizes[2]}).to_zarr(store, group=zarr_group, mode='w')
+        ds[var+'_min'].chunk({time_dim: -1}).to_zarr(store, group=zarr_group, mode='a')
+        ds[var+'_max'].chunk({time_dim: -1}).to_zarr(store, group=zarr_group, mode='a')
 
         # Agregar metadatos al grupo
         group = root_group[zarr_group]
