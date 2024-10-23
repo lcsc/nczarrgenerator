@@ -1,8 +1,44 @@
+"""
+Convert multiple NetCDF files to a Zarr store with additional metadata and chunking.
+Parameters
+----------
+nc_paths : list of dict
+    A list of dictionaries where each dictionary contains the following keys:
+    - 'path' (str): Path to the NetCDF file.
+    - 'nc_var' (str): Name of the variable in the NetCDF file.
+    - 'var' (str): Name to be used for the variable in the Zarr store.
+    - 'time_dim' (str, optional): Name of the time dimension in the NetCDF file. Default is 'time'.
+    - 'lat_dim' (str, optional): Name of the latitude dimension in the NetCDF file. Default is 'lat'.
+    - 'lon_dim' (str, optional): Name of the longitude dimension in the NetCDF file. Default is 'lon'.
+    - 'projection' (str, optional): Projection information for the dataset. Default is 'desconocida'.
+zarr_path : str
+    Path to the output Zarr store.
+chunk_num : tuple of int, optional
+    Number of chunks for each dimension (time, latitude, longitude). Default is (64, 8, 8).
+Returns
+-------
+None
+Notes
+-----
+- The function calculates global geographical extents (latitude and longitude) and adds them as metadata to the root group.
+- It also calculates the minimum and maximum values for each variable over time and adds them as new variables in the Zarr store.
+- Additional metadata such as variable titles, legend titles, and projection information are also added to the Zarr store.
+- The function calculates an approximate zoom level based on the geographical extents and adds it as metadata to the root group.
+Example
+-------
+    {'path': '/path/to/kndvi.nc', 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+    {'path': '/path/to/ndvi.nc', 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+    {'path': '/path/to/skndvi.nc', 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+    {'path': '/path/to/sndvi.nc', 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+zarr_path = '/path/to/output.zarr'
+"""
+
 import xarray as xr
 import zarr
 import dask
 import numpy as np
 import os
+import pyproj
 
 def ncs2zarr(nc_paths, zarr_path, chunk_num=(64, 8, 8)):
     # Inicializar variables para la extensión global
@@ -36,6 +72,12 @@ def ncs2zarr(nc_paths, zarr_path, chunk_num=(64, 8, 8)):
         lon_min = ds[lon_dim].min(skipna=True).compute().item()
         lon_max = ds[lon_dim].max(skipna=True).compute().item()
 
+        # Convertimos a EPSG:4326 con pyproj
+        crs = pyproj.CRS.from_string(nc_info['projection'])
+        transformer = pyproj.Transformer.from_crs(crs, 'EPSG:4326')
+        lon_min, lat_min = transformer.transform(lon_min, lat_min)
+        lon_max, lat_max = transformer.transform(lon_max, lat_max)
+
         lat_min_global = min(lat_min_global, lat_min)
         lat_max_global = max(lat_max_global, lat_max)
         lon_min_global = min(lon_min_global, lon_min)
@@ -54,7 +96,6 @@ def ncs2zarr(nc_paths, zarr_path, chunk_num=(64, 8, 8)):
         # Añadir los dataarrays varMin_da y varMax_da al dataset
         ds[var+'_min'] = varMin_da
         ds[var+'_max'] = varMax_da
-
 
         # Calcular minVal y maxVal globales
         minVal = varMin.min().item()
@@ -133,10 +174,10 @@ def ncs2zarr(nc_paths, zarr_path, chunk_num=(64, 8, 8)):
 
 # Ejemplo de uso
 netcdfs = [
-    {'path': '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/kndvi.nc', 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x'},
-    {'path': '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/ndvi.nc', 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x'},
-    {'path': '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/skndvi.nc', 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x'},
-    {'path': '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/sndvi.nc', 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x'},
+    {'path': '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/kndvi.nc', 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+    {'path': '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/ndvi.nc', 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+    {'path': '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/skndvi.nc', 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+    {'path': '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/sndvi.nc', 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
 ]
 zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies.zarr'
 ncs2zarr(netcdfs, zarr_path)
