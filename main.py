@@ -35,7 +35,6 @@ zarr_path = '/path/to/output.zarr'
 
 import xarray as xr
 import zarr
-import dask
 import numpy as np
 import os
 import pyproj
