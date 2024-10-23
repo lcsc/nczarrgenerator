@@ -41,13 +41,13 @@ import os
 import pyproj
 
 def ncs2zarr(nc_paths, zarr_path, chunk_num=(64, 8, 8)):
-    # Inicializar variables para la extensión global
+    # Initialize variables for global extent
     lat_min_global = np.inf
     lat_max_global = -np.inf
     lon_min_global = np.inf
     lon_max_global = -np.inf
 
-    # Crear un grupo raíz Zarr
+    # Create a root Zarr group
     store = zarr.DirectoryStore(zarr_path)
     root_group = zarr.group(store=store, overwrite=True)
 
@@ -59,20 +59,20 @@ def ncs2zarr(nc_paths, zarr_path, chunk_num=(64, 8, 8)):
         lat_dim = nc_info.get('lat_dim', 'lat')
         lon_dim = nc_info.get('lon_dim', 'lon')
         
-        print(f"Procesando {var}...")
+        print(f"Processing {var}...")
 
-        # Abrir el dataset netCDF con chunks
+        # Open the NetCDF dataset with chunks
         ds = xr.open_dataset(nc_path, chunks='auto')
-        # Renombramos el nombre de la variable nc_var del dataset
+        # Rename the variable nc_var in the dataset
         ds = ds.rename_vars({nc_var: var})
 
-        # Actualizar la extensión geográfica global
+        # Update the global geographical extent
         lat_min = ds[lat_dim].min(skipna=True).compute().item()
         lat_max = ds[lat_dim].max(skipna=True).compute().item()
         lon_min = ds[lon_dim].min(skipna=True).compute().item()
         lon_max = ds[lon_dim].max(skipna=True).compute().item()
 
-        # Convertimos a EPSG:4326 con pyproj
+        # Convert to EPSG:4326 with pyproj
         crs = pyproj.CRS.from_string(nc_info['projection'])
         transformer = pyproj.Transformer.from_crs(crs, 'EPSG:4326')
         lon_min, lat_min = transformer.transform(lon_min, lat_min)
@@ -85,28 +85,28 @@ def ncs2zarr(nc_paths, zarr_path, chunk_num=(64, 8, 8)):
 
         var_data = ds[var]
 
-        # Calcular varMin y varMax para cada fecha
+        # Calculate varMin and varMax for each date
         varMin = var_data.min(dim=[lat_dim, lon_dim]).compute()
         varMax = var_data.max(dim=[lat_dim, lon_dim]).compute()
 
-        # Crear DataArray para varMin y varMax
+        # Create DataArray for varMin and varMax
         varMin_da = xr.DataArray(varMin, dims=[time_dim], name=f'{var}_min')
         varMax_da = xr.DataArray(varMax, dims=[time_dim], name=f'{var}_max')
 
-        # Añadir los dataarrays varMin_da y varMax_da al dataset
+        # Add the dataarrays varMin_da and varMax_da to the dataset
         ds[var+'_min'] = varMin_da
         ds[var+'_max'] = varMax_da
 
-        # Calcular minVal y maxVal globales
+        # Calculate global minVal and maxVal
         minVal = varMin.min().item()
         maxVal = varMax.max().item()
 
-        # Obtener metadatos
+        # Get metadata
         varTitle = var_data.attrs.get('long_name', nc_var)
         legendTitle = var_data.attrs.get('short_name', nc_var)
         projection = ds.attrs.get('projection', 'desconocida')
 
-        # Calcular tamaños de chunks basados en el número de chunks deseado
+        # Calculate chunk sizes based on the desired number of chunks
         time_len = ds.sizes[time_dim]
         lat_len = ds.sizes[lat_dim]
         lon_len = ds.sizes[lon_dim]
@@ -117,13 +117,13 @@ def ncs2zarr(nc_paths, zarr_path, chunk_num=(64, 8, 8)):
             max(1, lon_len // chunk_num[2] + 1)
         )
 
-        # Escribir el dataset al Zarr en el grupo correspondiente
+        # Write the dataset to Zarr in the corresponding group
         zarr_group = os.path.join('/', var)
         ds[var].chunk({time_dim: chunk_sizes[0], lat_dim: chunk_sizes[1], lon_dim: chunk_sizes[2]}).to_zarr(store, group=zarr_group, mode='w')
         ds[var+'_min'].chunk({time_dim: -1}).to_zarr(store, group=zarr_group, mode='a')
         ds[var+'_max'].chunk({time_dim: -1}).to_zarr(store, group=zarr_group, mode='a')
 
-        # Agregar metadatos al grupo
+        # Add metadata to the group
         group = root_group[zarr_group]
         group.attrs['varTitle'] = varTitle
         group.attrs['legendTitle'] = legendTitle
@@ -131,16 +131,16 @@ def ncs2zarr(nc_paths, zarr_path, chunk_num=(64, 8, 8)):
         group.attrs['maxVal'] = maxVal
         group.attrs['projection'] = projection
 
-    # Calcular centro de la extensión geográfica global
+    # Calculate the center of the global geographical extent
     center_lat = (lat_min_global + lat_max_global) / 2
     center_lon = (lon_min_global + lon_max_global) / 2
 
-    # Calcular nivel de zoom (esto es una aproximación)
+    # Calculate zoom level (this is an approximation)
     def calculate_zoom(lat_min, lat_max, lon_min, lon_max):
         lat_extent = lat_max - lat_min
         lon_extent = lon_max - lon_min
         max_extent = max(lat_extent, lon_extent)
-        # Supongamos que nivel de zoom se basa en la extensión máxima
+        # Assume zoom level is based on the maximum extent
         if max_extent >= 180:
             zoom = 1
         elif max_extent >= 90:
@@ -165,14 +165,14 @@ def ncs2zarr(nc_paths, zarr_path, chunk_num=(64, 8, 8)):
 
     zoom_level = calculate_zoom(lat_min_global, lat_max_global, lon_min_global, lon_max_global)
 
-    # Agregar metadatos al grupo raíz
-    root_group.attrs['lat_centro'] = center_lat
-    root_group.attrs['lon_centro'] = center_lon
-    root_group.attrs['nivel_zoom'] = zoom_level
+    # Add metadata to the root group
+    root_group.attrs['center_lat'] = center_lat
+    root_group.attrs['center_lon'] = center_lon
+    root_group.attrs['zoom_level'] = zoom_level
 
-    print("Conversión completada.")
+    print("Conversion completed.")
 
-# Ejemplo de uso
+# Example usage
 netcdfs = [
     {'path': '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/kndvi.nc', 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
     {'path': '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/ndvi.nc', 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
