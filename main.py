@@ -177,11 +177,13 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
 # ]
 # zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies.zarr'
 
+
 # netcdfs = [
 #     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm/tmin_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm/tmin_daily_grid_can.nc'], 'nc_var': 'tmin', 'var': 'tmin', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
 #     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm/tmax_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm/tmax_daily_grid_can.nc'], 'nc_var': 'tmax', 'var': 'tmax', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
 # ]
 # zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/etm.zarr'
+
 
 netcdfs = [
     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm_subset/tmin_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm_subset/tmin_daily_grid_can.nc'], 'nc_var': 'tmin', 'var': 'tmin', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
