@@ -60,17 +60,27 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
         
         print(f"Processing {var}...")
 
-        datasets = []
-        for nc_path in nc_portions_path:
+        def open_dataset(nc_path):
+            # Open the NetCDF file
             print(f"Opening {nc_path}...")
-            ds_portion = xr.open_dataset(nc_path, chunks={time_dim: chunk_shape[0]})
-            # Reemplazar fillvalue con NaN
-            fillvalue = ds_portion[nc_var].encoding.get('_FillValue', None)
+            ds = xr.open_dataset(nc_path, chunks={time_dim: chunk_shape[0]})
+            # Replace fillvalue with NaN
+            fillvalue = ds[nc_var].encoding.get('_FillValue', None)
             if fillvalue is not None:
-                ds_portion[nc_var] = ds_portion[nc_var].where(ds_portion[nc_var] != fillvalue, np.nan)
-            datasets.append(ds_portion)
-        print(f"Combining datasets {nc_var}...")
-        ds = xr.combine_by_coords(datasets, data_vars=[nc_var], combine_attrs='override')
+                ds[nc_var] = ds[nc_var].where(ds[nc_var] != fillvalue, np.nan)
+            return ds
+
+        if len(nc_portions_path) > 1:
+            # Open each portion of the NetCDF file and combine them
+            datasets = []
+            for nc_path in nc_portions_path:
+                ds_portion = open_dataset(nc_path)
+                datasets.append(ds_portion)
+            print(f"Combining datasets {nc_var}...")
+            ds = xr.combine_by_coords(datasets, data_vars=[nc_var], combine_attrs='override')
+        else:
+            # Open the NetCDF file
+            ds = open_dataset(nc_portions_path[0])
 
         # Rename the variable nc_var in the dataset
         print(f"Renaming {nc_var} to {var}...")
@@ -177,20 +187,20 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
     print("Conversion completed.")
 
 # Example usage
-# netcdfs = [
-#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/kndvi.nc'], 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
-#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/ndvi.nc'], 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
-#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/skndvi.nc'], 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
-#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
-# ]
-# zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies.zarr'
-
-
 netcdfs = [
-    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm/tmin_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm/tmin_daily_grid_can.nc'], 'nc_var': 'tmin', 'var': 'tmin', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
-    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm/tmax_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm/tmax_daily_grid_can.nc'], 'nc_var': 'tmax', 'var': 'tmax', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
+    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/kndvi.nc'], 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/ndvi.nc'], 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/skndvi.nc'], 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
 ]
-zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/etm.zarr'
+zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies.zarr'
+
+
+# netcdfs = [
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm/tmin_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm/tmin_daily_grid_can.nc'], 'nc_var': 'tmin', 'var': 'tmin', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm/tmax_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm/tmax_daily_grid_can.nc'], 'nc_var': 'tmax', 'var': 'tmax', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
+# ]
+# zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/etm.zarr'
 
 
 # netcdfs = [
@@ -200,6 +210,6 @@ zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/etm.zarr'
 # zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/etm_subset.zarr'
 
 
-#ncs2zarr(netcdfs, zarr_path, chunk_shape=(354, 52, 92))
-ncs2zarr(netcdfs, zarr_path, chunk_shape=(354, 43, 69))
+ncs2zarr(netcdfs, zarr_path, chunk_shape=(17, 52, 92))
+#ncs2zarr(netcdfs, zarr_path, chunk_shape=(354, 43, 69))
 #ncs2zarr(netcdfs, zarr_path, chunk_shape=(10, 43, 69))
