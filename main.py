@@ -63,7 +63,7 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
         def open_dataset(nc_path):
             # Open the NetCDF file
             print(f"Opening {nc_path}...")
-            ds = xr.open_dataset(nc_path, chunks={time_dim: chunk_shape[0]})
+            ds = xr.open_dataset(nc_path, chunks={time_dim: chunk_shape[0], lat_dim: None, lon_dim: None})
             # Replace fillvalue with NaN
             fillvalue = ds[nc_var].encoding.get('_FillValue', None)
             if fillvalue is not None:
