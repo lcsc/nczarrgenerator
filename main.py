@@ -62,7 +62,6 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
 
         def open_dataset(nc_path):
             # Open the NetCDF file
-            print(f"Opening {nc_path}...")
             ds = xr.open_dataset(nc_path, chunks={time_dim: chunk_shape[0], lat_dim: None, lon_dim: None})
             # Replace fillvalue with NaN
             fillvalue = ds[nc_var].encoding.get('_FillValue', None)
@@ -76,18 +75,18 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
             for nc_path in nc_portions_path:
                 ds_portion = open_dataset(nc_path)
                 datasets.append(ds_portion)
-            print(f"Combining datasets {nc_var}...")
+            print(f"  0. Combining portions {nc_var}...")
             ds = xr.combine_by_coords(datasets, data_vars=[nc_var], combine_attrs='override')
         else:
             # Open the NetCDF file
             ds = open_dataset(nc_portions_path[0])
 
         # Rename the variable nc_var in the dataset
-        print(f"Renaming {nc_var} to {var}...")
+        print(f"  1. Renaming {nc_var} to {var}...")
         ds = ds.rename_vars({nc_var: var})
 
         # Update the global geographical extent
-        print(f"Calculating global extent for {var}...")
+        print(f"  2. Calculating global extent for {var}...")
         lat_min = ds[lat_dim].min(skipna=True).compute().item()
         lat_max = ds[lat_dim].max(skipna=True).compute().item()
         lon_min = ds[lon_dim].min(skipna=True).compute().item()
@@ -105,22 +104,22 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
         lon_max_global = max(lon_max_global, lon_max)
 
         # Calculate varMin and varMax for each date
-        print(f"Calculating {var}_min and {var}_max for each date...")
+        print(f"  3. Calculating {var}_min and {var}_max for each date...")
         varMin = ds[var].min(dim=[lat_dim, lon_dim], skipna=True).compute()
         varMax = ds[var].max(dim=[lat_dim, lon_dim], skipna=True).compute()
 
         # Create DataArray for varMin and varMax
-        print(f"Creating DataArrays for {var}_min and {var}_max...")
+        print(f"  4. Creating DataArrays for {var}_min and {var}_max...")
         varMin_da = xr.DataArray(varMin, dims=[time_dim], name=f'{var}_min')
         varMax_da = xr.DataArray(varMax, dims=[time_dim], name=f'{var}_max')
 
         # Add the dataarrays varMin_da and varMax_da to the dataset
-        print(f"Adding {var}_min and {var}_max to the dataset...")
+        print(f"  5. Adding {var}_min and {var}_max to the dataset...")
         ds[var+'_min'] = varMin_da
         ds[var+'_max'] = varMax_da
 
         # Calculate global minVal and maxVal
-        print(f"Calculating global minVal and maxVal for {var}...")
+        print(f"  6. Calculating global minVal and maxVal for {var}...")
         minVal = varMin.min().item()
         maxVal = varMax.max().item()
 
@@ -131,9 +130,9 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
 
         # Write the dataset to Zarr in the corresponding group
         zarr_group = os.path.join('/', var)
-        print(f"Writing {var} to Zarr...")
+        print(f"  7. Writing {var} to Zarr...")
         ds[var].chunk({time_dim: chunk_shape[0], lat_dim: chunk_shape[1], lon_dim: chunk_shape[2]}).to_dataset(name=var).to_zarr(store, group=zarr_group, mode='w', write_empty_chunks=False)
-        print(f"Writing {var}_min and {var}_max to Zarr...")
+        print(f"  8. Writing {var}_min and {var}_max to Zarr...")
         ds[var+'_min'].chunk({time_dim: -1}).to_dataset(name=var+'_min').to_zarr(store, group=zarr_group, mode='a', write_empty_chunks=False)
         ds[var+'_max'].chunk({time_dim: -1}).to_dataset(name=var+'_max').to_zarr(store, group=zarr_group, mode='a', write_empty_chunks=False)
 
@@ -187,29 +186,20 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
     print("Conversion completed.")
 
 # Example usage
+## vi-anomalies => 1m56s
+# netcdfs = [
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/kndvi.nc'], 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/ndvi.nc'], 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/skndvi.nc'], 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+# ]
+# zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies.zarr'
+# ncs2zarr(netcdfs, zarr_path, chunk_shape=(17, 52, 92))
+
+## etm => 8m17s
 netcdfs = [
-    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/kndvi.nc'], 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
-    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/ndvi.nc'], 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
-    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/skndvi.nc'], 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
-    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'projection': 'EPSG:23030'},
+    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm/tmin_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm/tmin_daily_grid_can.nc'], 'nc_var': 'tmin', 'var': 'tmin', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
+    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm/tmax_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm/tmax_daily_grid_can.nc'], 'nc_var': 'tmax', 'var': 'tmax', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
 ]
-zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies.zarr'
-
-
-# netcdfs = [
-#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm/tmin_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm/tmin_daily_grid_can.nc'], 'nc_var': 'tmin', 'var': 'tmin', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
-#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm/tmax_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm/tmax_daily_grid_can.nc'], 'nc_var': 'tmax', 'var': 'tmax', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
-# ]
-# zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/etm.zarr'
-
-
-# netcdfs = [
-#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm_subset/tmin_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm_subset/tmin_daily_grid_can.nc'], 'nc_var': 'tmin', 'var': 'tmin', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
-#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/etm_subset/tmax_daily_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/etm_subset/tmax_daily_grid_can.nc'], 'nc_var': 'tmax', 'var': 'tmax', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'projection': 'EPSG:4326'},
-# ]
-# zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/etm_subset.zarr'
-
-
-ncs2zarr(netcdfs, zarr_path, chunk_shape=(17, 52, 92))
-#ncs2zarr(netcdfs, zarr_path, chunk_shape=(354, 43, 69))
-#ncs2zarr(netcdfs, zarr_path, chunk_shape=(10, 43, 69))
+zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/etm.zarr'
+ncs2zarr(netcdfs, zarr_path, chunk_shape=(354, 43, 69))
