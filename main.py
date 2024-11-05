@@ -39,8 +39,11 @@ import zarr
 import numpy as np
 import os
 import pyproj
+import time
 
 def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
+    total_start_time = time.time()
+
     # Initialize variables for global extent
     lat_min_global = np.inf
     lat_max_global = -np.inf
@@ -52,6 +55,7 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
     root_group = zarr.group(store=store, overwrite=True)
 
     for nc_info in nc_paths:
+        var_start_time = time.time()
         nc_portions_path = nc_info['path']
         nc_var = nc_info['nc_var']
         var = nc_info['var']
@@ -60,6 +64,7 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
         lon_dim = nc_info.get('lon_dim', 'lon')
         nc_projection = nc_info.get('nc_projection', 'EPSG:4326')
         calc_min_max = nc_info.get('calc_min_max', True)
+
         print(f"Processing {var}...")
 
         def open_dataset(nc_path):
@@ -67,8 +72,11 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
             ds = xr.open_dataset(nc_path, chunks={time_dim: chunk_shape[0], lat_dim: None, lon_dim: None})
             # Replace fillvalue with NaN
             fillvalue = ds[nc_var].encoding.get('_FillValue', None)
-            if fillvalue is not None:
+            if fillvalue is not None and not np.isnan(fillvalue):
+                elapsed_time = time.time()
+                print(f"  0. Replacing fillvalue {fillvalue} with NaN for {var}...", end=" ")
                 ds[nc_var] = ds[nc_var].where(ds[nc_var] != fillvalue, np.nan)
+                print(f"[{(time.time() - elapsed_time):.2f} seconds]")
             return ds
 
         if len(nc_portions_path) > 1:
@@ -77,22 +85,28 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
             for nc_path in nc_portions_path:
                 ds_portion = open_dataset(nc_path)
                 datasets.append(ds_portion)
-            print(f"  0. Combining portions {nc_var}...")
+            elapsed_time = time.time()
+            print(f"  0. Combining portions {nc_var}...", end=" ")
             ds = xr.combine_by_coords(datasets, data_vars=[nc_var], combine_attrs='override')
+            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
         else:
             # Open the NetCDF file
             ds = open_dataset(nc_portions_path[0])
 
         # Rename the variable nc_var in the dataset
-        print(f"  1. Renaming {nc_var} to {var}...")
+        elapsed_time = time.time()
+        print(f"  1. Renaming {nc_var} to {var}...", end=" ")
         ds = ds.rename_vars({nc_var: var})
+        print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
         # Update the global geographical extent
-        print(f"  2. Calculating global extent for {var}...")
+        elapsed_time = time.time()
+        print(f"  2. Calculating global extent for {var}...", end=" ")
         lat_min = ds[lat_dim].min(skipna=True).compute().item()
         lat_max = ds[lat_dim].max(skipna=True).compute().item()
         lon_min = ds[lon_dim].min(skipna=True).compute().item()
         lon_max = ds[lon_dim].max(skipna=True).compute().item()
+        print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
         # Convert to EPSG:4326 with pyproj
         crs = pyproj.CRS.from_string(nc_projection)
@@ -107,24 +121,32 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
 
         if calc_min_max:
             # Calculate varMin and varMax for each date
-            print(f"  3. Calculating {var}_min and {var}_max for each date...")
+            elapsed_time = time.time()
+            print(f"  3. Calculating {var}_min and {var}_max for each date...", end=" ")
             varMin = ds[var].min(dim=[lat_dim, lon_dim], skipna=True).compute()
             varMax = ds[var].max(dim=[lat_dim, lon_dim], skipna=True).compute()
+            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
             # Create DataArray for varMin and varMax
-            print(f"  4. Creating DataArrays for {var}_min and {var}_max...")
+            elapsed_time = time.time()
+            print(f"  4. Creating DataArrays for {var}_min and {var}_max...", end=" ")
             varMin_da = xr.DataArray(varMin, dims=[time_dim], name=f'{var}_min')
             varMax_da = xr.DataArray(varMax, dims=[time_dim], name=f'{var}_max')
+            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
             # Add the dataarrays varMin_da and varMax_da to the dataset
-            print(f"  5. Adding {var}_min and {var}_max to the dataset...")
+            elapsed_time = time.time()
+            print(f"  5. Adding {var}_min and {var}_max to the dataset...", end=" ")
             ds[var+'_min'] = varMin_da
             ds[var+'_max'] = varMax_da
+            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
             # Calculate global minVal and maxVal
-            print(f"  6. Calculating global minVal and maxVal for {var}...")
+            elapsed_time = time.time()
+            print(f"  6. Calculating global minVal and maxVal for {var}...", end=" ")
             minVal = varMin.min().item()
             maxVal = varMax.max().item()
+            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
         # Get metadata
         varTitle = ds[var].attrs.get('long_name', nc_var)
@@ -133,13 +155,17 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
 
         # Write the dataset to Zarr in the corresponding group
         zarr_group = os.path.join('/', var)
-        print(f"  {7 if calc_min_max else 3}. Writing {var} to Zarr...")
+        elapsed_time = time.time()
+        print(f"  {7 if calc_min_max else 3}. Writing {var} to Zarr...", end=" ")
         ds[var].chunk({time_dim: chunk_shape[0], lat_dim: chunk_shape[1], lon_dim: chunk_shape[2]}).to_dataset(name=var).to_zarr(store, group=zarr_group, mode='w', write_empty_chunks=False)
+        print(f"[{(time.time() - elapsed_time):.2f} seconds]")
         if calc_min_max:
             # Write varMin and varMax to Zarr
-            print(f"  8. Writing {var}_min and {var}_max to Zarr...")
+            elapsed_time = time.time()
+            print(f"  8. Writing {var}_min and {var}_max to Zarr...", end=" ")
             ds[var+'_min'].chunk({time_dim: -1}).to_dataset(name=var+'_min').to_zarr(store, group=zarr_group, mode='a', write_empty_chunks=False)
             ds[var+'_max'].chunk({time_dim: -1}).to_dataset(name=var+'_max').to_zarr(store, group=zarr_group, mode='a', write_empty_chunks=False)
+            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
         # Add metadata to the group
         group = root_group[zarr_group]
@@ -149,6 +175,8 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
             group.attrs['minVal'] = minVal
             group.attrs['maxVal'] = maxVal
         group.attrs['projection'] = projection
+
+        print(f"Total processing time for {var}: {(time.time() - var_start_time):.2f} seconds")
 
     # Calculate the center of the global geographical extent
     center_lat = (lat_min_global + lat_max_global) / 2
@@ -189,15 +217,16 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
     root_group.attrs['center_lon'] = center_lon
     root_group.attrs['zoom_level'] = zoom_level
 
-    print("Conversion completed.")
+    print(f"Conversion completed. Total processing time: {(time.time() - total_start_time):.2f} seconds")
 
 # Example usage
+
 ## vi-anomalies => 1m56s
 netcdfs = [
-    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/kndvi.nc'], 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': False},
-    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/ndvi.nc'], 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': False},
-    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/skndvi.nc'], 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': False},
-    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': False},
+    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/kndvi.nc'], 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True},
+    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/ndvi.nc'], 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True},
+    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/skndvi.nc'], 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True},
+    {'path': ['/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True},
 ]
 zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/vi-anomalies.zarr'
 ncs2zarr(netcdfs, zarr_path, chunk_shape=(17, 52, 92))
@@ -209,3 +238,45 @@ ncs2zarr(netcdfs, zarr_path, chunk_shape=(17, 52, 92))
 # ]
 # zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/etm.zarr'
 # ncs2zarr(netcdfs, zarr_path, chunk_shape=(354, 43, 69))
+
+## ccm
+# netcdfs = [
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/cdd_month_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/cdd_month_grid_can.nc'], 'nc_var': 'cdd', 'var': 'cdd_month', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/cdd_season_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/cdd_season_grid_can.nc'], 'nc_var': 'cdd', 'var': 'cdd_season', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/cdd_year_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/cdd_year_grid_can.nc'], 'nc_var': 'cdd', 'var': 'cdd_year', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/dr1mm_month_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/dr1mm_month_grid_can.nc'], 'nc_var': 'dr1mm', 'var': 'dr1mm_month', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/dr1mm_season_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/dr1mm_season_grid_can.nc'], 'nc_var': 'dr1mm', 'var': 'dr1mm_season', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/dr1mm_year_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/dr1mm_year_grid_can.nc'], 'nc_var': 'dr1mm', 'var': 'dr1mm_year', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/dtr_month_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/dtr_month_grid_can.nc'], 'nc_var': 'dtr', 'var': 'dtr_month', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/dtr_season_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/dtr_season_grid_can.nc'], 'nc_var': 'dtr', 'var': 'dtr_season', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/dtr_year_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/dtr_year_grid_can.nc'], 'nc_var': 'dtr', 'var': 'dtr_year', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/fd_month_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/fd_month_grid_can.nc'], 'nc_var': 'fd', 'var': 'fd_month', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/fd_season_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/fd_season_grid_can.nc'], 'nc_var': 'fd', 'var': 'fd_season', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/fd_year_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/fd_year_grid_can.nc'], 'nc_var': 'fd', 'var': 'fd_year', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/gtg_month_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/gtg_month_grid_can.nc'], 'nc_var': 'gtg', 'var': 'gtg_month', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/gtg_season_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/gtg_season_grid_can.nc'], 'nc_var': 'gtg', 'var': 'gtg_season', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/gtg_year_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/gtg_year_grid_can.nc'], 'nc_var': 'gtg', 'var': 'gtg_year', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/r20mm_month_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/r20mm_month_grid_can.nc'], 'nc_var': 'r20mm', 'var': 'r20mm_month', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/r20mm_season_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/r20mm_season_grid_can.nc'], 'nc_var': 'r20mm', 'var': 'r20mm_season', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/r20mm_year_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/r20mm_year_grid_can.nc'], 'nc_var': 'r20mm', 'var': 'r20mm_year', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/rti_month_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/rti_month_grid_can.nc'], 'nc_var': 'rti', 'var': 'rti_month', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/rti_season_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/rti_season_grid_can.nc'], 'nc_var': 'rti', 'var': 'rti_season', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/rti_year_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/rti_year_grid_can.nc'], 'nc_var': 'rti', 'var': 'rti_year', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/rx1day_month_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/rx1day_month_grid_can.nc'], 'nc_var': 'rx1day', 'var': 'rx1day_month', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/rx1day_season_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/rx1day_season_grid_can.nc'], 'nc_var': 'rx1day', 'var': 'rx1day_season', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/rx1day_year_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/rx1day_year_grid_can.nc'], 'nc_var': 'rx1day', 'var': 'rx1day_year', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/rx5d_month_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/rx5d_month_grid_can.nc'], 'nc_var': 'rx5d', 'var': 'rx5d_month', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/rx5d_season_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/rx5d_season_grid_can.nc'], 'nc_var': 'rx5d', 'var': 'rx5d_season', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/rx5d_year_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/rx5d_year_grid_can.nc'], 'nc_var': 'rx5d', 'var': 'rx5d_year', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/tnn_month_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/tnn_month_grid_can.nc'], 'nc_var': 'tnn', 'var': 'tnn_month', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/tnn_season_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/tnn_season_grid_can.nc'], 'nc_var': 'tnn', 'var': 'tnn_season', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/tnn_year_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/tnn_year_grid_can.nc'], 'nc_var': 'tnn', 'var': 'tnn_year', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/tr_month_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/tr_month_grid_can.nc'], 'nc_var': 'tr', 'var': 'tr_month', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/tr_season_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/tr_season_grid_can.nc'], 'nc_var': 'tr', 'var': 'tr_season', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/tr_year_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/tr_year_grid_can.nc'], 'nc_var': 'tr', 'var': 'tr_year', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/txx_month_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/txx_month_grid_can.nc'], 'nc_var': 'txx', 'var': 'txx_month', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/txx_season_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/txx_season_grid_can.nc'], 'nc_var': 'txx', 'var': 'txx_season', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+#     {'path': ['/home/edumoreno/git/nczarrgenerator/nc/ccm/txx_year_grid_pen.nc', '/home/edumoreno/git/nczarrgenerator/nc/ccm/txx_year_grid_can.nc'], 'nc_var': 'txx', 'var': 'txx_year', 'time_dim': 'time', 'lat_dim': 'lat', 'lon_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True},
+# ]
+# zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/ccm.zarr'
+# ncs2zarr(netcdfs, zarr_path, chunk_shape=(12, 43, 69))
