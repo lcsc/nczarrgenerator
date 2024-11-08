@@ -13,6 +13,7 @@ nc_paths : list of dict
     - 'nc_projection' (str, optional): Projection information for the dataset. Default is 'desconocida'.
     - 'calc_min_max' (bool, optional): Whether to calculate minimum and maximum values for each variable over time. Default is True.
     - 'include_center_calc' (bool, optional): Whether to include the file in the calculation of the center of the global geographical extent. Default is False.
+    - 'chunk_shape' (tuple of int, optional): Shape of chunks for each dimension (time, latitude, longitude). Default is (16, 128, 128).
 zarr_path : str
     Path to the output Zarr store.
 chunk_shape : tuple of int, optional
@@ -28,11 +29,14 @@ Notes
 - The function calculates an approximate zoom level based on the geographical extents and adds it as metadata to the root group.
 Example
 -------
-    {'path': '/path/to/kndvi.nc', 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True},
-    {'path': '/path/to/ndvi.nc', 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True},
-    {'path': '/path/to/skndvi.nc', 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True},
-    {'path': '/path/to/sndvi.nc', 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True},
-zarr_path = '/path/to/output.zarr'
+netcdfs = [
+    {'path': ['/path/to/kndvi.nc'], 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
+    {'path': ['/path/to/ndvi.nc'], 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': True, 'chunk_shape': (17, 52, 92)},
+    {'path': ['/path/to/skndvi.nc'], 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
+    {'path': ['/path/to/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
+]
+zarr_path = '/path/to/vi-anomalies.zarr'
+ncs2zarr(netcdfs, zarr_path)
 """
 
 import xarray as xr
@@ -42,7 +46,7 @@ import os
 import pyproj
 import time
 
-def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
+def ncs2zarr(nc_paths, zarr_path):
     total_start_time = time.time()
 
     # Initialize variables for global extent
@@ -67,6 +71,7 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
         nc_projection = nc_info.get('nc_projection', 'EPSG:4326')
         calc_min_max = nc_info.get('calc_min_max', True)
         include_center_calc = nc_info.get('include_center_calc', False)
+        chunk_shape = nc_info.get('chunk_shape', (16, 128, 128))
 
         print(f"Processing {var}...")
 
@@ -77,7 +82,7 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
             fillvalue = ds[nc_var].encoding.get('_FillValue', None)
             if fillvalue is not None and not np.isnan(fillvalue):
                 elapsed_time = time.time()
-                print(f"  0. Replacing fillvalue {fillvalue} with NaN for {var} in {nc_path}...", end=" ")
+                print(f"  * Replacing fillvalue {fillvalue} with NaN for {var} in {nc_path}...", end=" ")
                 ds[nc_var] = ds[nc_var].astype(fillvalue.dtype).where(ds[nc_var].astype(fillvalue.dtype) != fillvalue, np.nan)
                 print(f"[{(time.time() - elapsed_time):.2f} seconds]")
             return ds
@@ -89,7 +94,7 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
                 ds_portion = open_dataset(nc_path)
                 datasets.append(ds_portion)
             elapsed_time = time.time()
-            print(f"  0. Combining portions {nc_var}...", end=" ")
+            print(f"  * Combining portions {nc_var}...", end=" ")
             ds = xr.combine_by_coords(datasets, data_vars=[nc_var], combine_attrs='override')
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
         else:
@@ -99,11 +104,11 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
         # Rename the variable nc_var in the dataset
         if nc_var != var:
             elapsed_time = time.time()
-            print(f"  1. Renaming {nc_var} to {var}...", end=" ")
+            print(f"  * Renaming {nc_var} to {var}...", end=" ")
             ds = ds.rename_vars({nc_var: var})
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
         else:
-            print(f"  1. {nc_var} is already named {var}")
+            print(f"  * {nc_var} is already named {var}")
 
         if include_center_calc:
             default_center = False
@@ -127,28 +132,28 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
         if calc_min_max:
             # Calculate varMin and varMax for each date
             elapsed_time = time.time()
-            print(f"  2. Calculating {var}_min and {var}_max for each date...", end=" ")
+            print(f"  * Calculating {var}_min and {var}_max for each date...", end=" ")
             varMin = ds[var].min(dim=[lat_dim, lon_dim], skipna=True).compute()
             varMax = ds[var].max(dim=[lat_dim, lon_dim], skipna=True).compute()
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
             # Create DataArray for varMin and varMax
             elapsed_time = time.time()
-            print(f"  3. Creating DataArrays for {var}_min and {var}_max...", end=" ")
+            print(f"  * Creating DataArrays for {var}_min and {var}_max...", end=" ")
             varMin_da = xr.DataArray(varMin, dims=[time_dim], name=f'{var}_min')
             varMax_da = xr.DataArray(varMax, dims=[time_dim], name=f'{var}_max')
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
             # Add the dataarrays varMin_da and varMax_da to the dataset
             elapsed_time = time.time()
-            print(f"  4. Adding {var}_min and {var}_max to the dataset...", end=" ")
+            print(f"  * Adding {var}_min and {var}_max to the dataset...", end=" ")
             ds[var+'_min'] = varMin_da
             ds[var+'_max'] = varMax_da
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
             # Calculate global minVal and maxVal
             elapsed_time = time.time()
-            print(f"  5. Calculating global minVal and maxVal for {var}...", end=" ")
+            print(f"  * Calculating global minVal and maxVal for {var}...", end=" ")
             minVal = varMin.min().item()
             maxVal = varMax.max().item()
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
@@ -161,13 +166,13 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
         # Write the dataset to Zarr in the corresponding group
         zarr_group = os.path.join('/', var)
         elapsed_time = time.time()
-        print(f"  {6 if calc_min_max else 2}. Writing {var} to Zarr...", end=" ")
+        print(f"  * Writing {var} to Zarr...", end=" ")
         ds[var].chunk({time_dim: chunk_shape[0], lat_dim: chunk_shape[1], lon_dim: chunk_shape[2]}).to_dataset(name=var).to_zarr(store, group=zarr_group, mode='w', write_empty_chunks=False)
         print(f"[{(time.time() - elapsed_time):.2f} seconds]")
         if calc_min_max:
             # Write varMin and varMax to Zarr
             elapsed_time = time.time()
-            print(f"  7. Writing {var}_min and {var}_max to Zarr...", end=" ")
+            print(f"  * Writing {var}_min and {var}_max to Zarr...", end=" ")
             ds[var+'_min'].chunk({time_dim: -1}).to_dataset(name=var+'_min').to_zarr(store, group=zarr_group, mode='a', write_empty_chunks=False)
             ds[var+'_max'].chunk({time_dim: -1}).to_dataset(name=var+'_max').to_zarr(store, group=zarr_group, mode='a', write_empty_chunks=False)
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
