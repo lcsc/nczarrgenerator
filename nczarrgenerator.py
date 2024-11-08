@@ -97,10 +97,13 @@ def ncs2zarr(nc_paths, zarr_path, chunk_shape=(16, 128, 128)):
             ds = open_dataset(nc_portions_path[0])
 
         # Rename the variable nc_var in the dataset
-        elapsed_time = time.time()
-        print(f"  1. Renaming {nc_var} to {var}...", end=" ")
-        ds = ds.rename_vars({nc_var: var})
-        print(f"[{(time.time() - elapsed_time):.2f} seconds]")
+        if nc_var != var:
+            elapsed_time = time.time()
+            print(f"  1. Renaming {nc_var} to {var}...", end=" ")
+            ds = ds.rename_vars({nc_var: var})
+            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
+        else:
+            print(f"  1. {nc_var} is already named {var}")
 
         if include_center_calc:
             default_center = False
