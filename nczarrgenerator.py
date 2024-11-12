@@ -77,7 +77,7 @@ def ncs2zarr(nc_paths, zarr_path):
 
         def open_dataset(nc_path):
             # Open the NetCDF file
-            ds = xr.open_dataset(nc_path, chunks={time_dim: chunk_shape[0], lat_dim: None, lon_dim: None})
+            ds = xr.open_dataset(nc_path, chunks={time_dim: chunk_shape[0], lat_dim: None, lon_dim: None}, decode_times=False)
             # Replace fillvalue with NaN
             fillvalue = ds[nc_var].encoding.get('_FillValue', None)
             if fillvalue is not None and not np.isnan(fillvalue):
