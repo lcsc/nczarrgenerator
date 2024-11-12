@@ -24,4 +24,4 @@ netcdfs = [
 zarr_path = '/home/edumoreno/git/nczarrgenerator/nc/amm.zarr'
 ncs2zarr(netcdfs, zarr_path)
 
-# 37 minutos con max/min
+# pocos segundos con max/min
