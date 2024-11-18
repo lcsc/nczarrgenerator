@@ -4,20 +4,18 @@ Parameters
 ----------
 nc_paths : list of dict
     A list of dictionaries where each dictionary contains the following keys:
-    - 'path' (str): Path to the NetCDF file.
+    - 'path' (list of str): Paths to the NetCDF file portions.
     - 'nc_var' (str): Name of the variable in the NetCDF file.
     - 'var' (str): Name to be used for the variable in the Zarr store.
     - 'time_dim' (str, optional): Name of the time dimension in the NetCDF file. Default is 'time'.
-    - 'lat_dim' (str, optional): Name of the latitude dimension in the NetCDF file. Default is 'lat'.
-    - 'lon_dim' (str, optional): Name of the longitude dimension in the NetCDF file. Default is 'lon'.
+    - 'ver_dim' (str, optional): Name of the vertical dimension in the NetCDF file. Default is 'lat'.
+    - 'hor_dim' (str, optional): Name of the horizontal dimension in the NetCDF file. Default is 'lon'.
     - 'nc_projection' (str, optional): Projection information for the dataset. Default is 'desconocida'.
     - 'calc_min_max' (bool, optional): Whether to calculate minimum and maximum values for each variable over time. Default is True.
     - 'include_center_calc' (bool, optional): Whether to include the file in the calculation of the center of the global geographical extent. Default is False.
     - 'chunk_shape' (tuple of int, optional): Shape of chunks for each dimension (time, latitude, longitude). Default is (16, 128, 128).
 zarr_path : str
     Path to the output Zarr store.
-chunk_shape : tuple of int, optional
-    Shape of chunks for each dimension (time, latitude, longitude). Default is (16, 128, 128).
 Returns
 -------
 None
@@ -30,10 +28,10 @@ Notes
 Example
 -------
 netcdfs = [
-    {'path': ['/path/to/kndvi.nc'], 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
-    {'path': ['/path/to/ndvi.nc'], 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': True, 'chunk_shape': (17, 52, 92)},
-    {'path': ['/path/to/skndvi.nc'], 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
-    {'path': ['/path/to/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'lat_dim': 'y', 'lon_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
+    {'path': ['/path/to/kndvi.nc'], 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
+    {'path': ['/path/to/ndvi.nc'], 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': True, 'chunk_shape': (17, 52, 92)},
+    {'path': ['/path/to/skndvi.nc'], 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
+    {'path': ['/path/to/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
 ]
 zarr_path = '/path/to/vi-anomalies.zarr'
 ncs2zarr(netcdfs, zarr_path)
@@ -66,8 +64,8 @@ def ncs2zarr(nc_paths, zarr_path):
         nc_var = nc_info['nc_var']
         var = nc_info['var']
         time_dim = nc_info.get('time_dim', 'time')
-        lat_dim = nc_info.get('lat_dim', 'lat')
-        lon_dim = nc_info.get('lon_dim', 'lon')
+        ver_dim = nc_info.get('ver_dim', 'lat')
+        hor_dim = nc_info.get('hor_dim', 'lon')
         nc_projection = nc_info.get('nc_projection', 'EPSG:4326')
         calc_min_max = nc_info.get('calc_min_max', True)
         include_center_calc = nc_info.get('include_center_calc', False)
@@ -77,7 +75,7 @@ def ncs2zarr(nc_paths, zarr_path):
 
         def open_dataset(nc_path):
             # Open the NetCDF file
-            ds = xr.open_dataset(nc_path, chunks={time_dim: chunk_shape[0], lat_dim: None, lon_dim: None}, decode_times=False)
+            ds = xr.open_dataset(nc_path, chunks={time_dim: chunk_shape[0], ver_dim: None, hor_dim: None}, decode_times=False)
             # Replace fillvalue with NaN
             fillvalue = ds[nc_var].encoding.get('_FillValue', None)
             if fillvalue is not None and not np.isnan(fillvalue):
@@ -113,10 +111,10 @@ def ncs2zarr(nc_paths, zarr_path):
         if include_center_calc:
             default_center = False
             # Update the global geographical extent
-            lat_min = ds[lat_dim].min(skipna=True).compute().item()
-            lat_max = ds[lat_dim].max(skipna=True).compute().item()
-            lon_min = ds[lon_dim].min(skipna=True).compute().item()
-            lon_max = ds[lon_dim].max(skipna=True).compute().item()
+            lat_min = ds[ver_dim].min(skipna=True).compute().item()
+            lat_max = ds[ver_dim].max(skipna=True).compute().item()
+            lon_min = ds[hor_dim].min(skipna=True).compute().item()
+            lon_max = ds[hor_dim].max(skipna=True).compute().item()
 
             # Convert to EPSG:4326 with pyproj
             crs = pyproj.CRS.from_string(nc_projection)
@@ -133,8 +131,8 @@ def ncs2zarr(nc_paths, zarr_path):
             # Calculate varMin and varMax for each date
             elapsed_time = time.time()
             print(f"  * Calculating {var}_min and {var}_max for each date...", end=" ")
-            varMin = ds[var].min(dim=[lat_dim, lon_dim], skipna=True).compute()
-            varMax = ds[var].max(dim=[lat_dim, lon_dim], skipna=True).compute()
+            varMin = ds[var].min(dim=[ver_dim, hor_dim], skipna=True).compute()
+            varMax = ds[var].max(dim=[ver_dim, hor_dim], skipna=True).compute()
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
             # Create DataArray for varMin and varMax
@@ -167,7 +165,7 @@ def ncs2zarr(nc_paths, zarr_path):
         zarr_group = os.path.join('/', var)
         elapsed_time = time.time()
         print(f"  * Writing {var} to Zarr...", end=" ")
-        ds[var].chunk({time_dim: chunk_shape[0], lat_dim: chunk_shape[1], lon_dim: chunk_shape[2]}).to_dataset(name=var).to_zarr(store, group=zarr_group, mode='w', write_empty_chunks=False)
+        ds[var].chunk({time_dim: chunk_shape[0], ver_dim: chunk_shape[1], hor_dim: chunk_shape[2]}).to_dataset(name=var).to_zarr(store, group=zarr_group, mode='w', write_empty_chunks=False)
         print(f"[{(time.time() - elapsed_time):.2f} seconds]")
         if calc_min_max:
             # Write varMin and varMax to Zarr
