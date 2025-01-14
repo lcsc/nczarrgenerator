@@ -118,7 +118,7 @@ def ncs2zarr(nc_paths, zarr_path):
 
             # Convert to EPSG:4326 with pyproj
             crs = pyproj.CRS.from_string(nc_projection)
-            transformer = pyproj.Transformer.from_crs(crs, 'EPSG:4326')
+            transformer = pyproj.Transformer.from_crs(crs, 'EPSG:4326', always_xy=True)
             lon_min, lat_min = transformer.transform(lon_min, lat_min)
             lon_max, lat_max = transformer.transform(lon_max, lat_max)
 
