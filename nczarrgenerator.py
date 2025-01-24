@@ -228,5 +228,6 @@ def ncs2zarr(nc_paths, zarr_path):
     root_group.attrs['center_lat'] = center_lat
     root_group.attrs['center_lon'] = center_lon
     root_group.attrs['zoom_level'] = zoom_level
+    root_group.attrs['variables'] = [nc_info['var'] for nc_info in nc_paths]
 
     print(f"Conversion completed. Total processing time: {(time.time() - total_start_time):.2f} seconds")
