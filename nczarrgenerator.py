@@ -44,6 +44,11 @@ import os
 import pyproj
 import time
 
+# Constants for dimensions names to be used in the Zarr store
+X_DIM = 'x'
+Y_DIM = 'y'
+T_DIM = 'time'
+
 def ncs2zarr(nc_paths, zarr_path):
     total_start_time = time.time()
 
@@ -73,7 +78,7 @@ def ncs2zarr(nc_paths, zarr_path):
 
         print(f"Processing {var}...")
 
-        def open_dataset(nc_path):
+        def my_open_dataset(nc_path):
             # Open the NetCDF file
             ds = xr.open_dataset(nc_path, chunks={time_dim: chunk_shape[0], ver_dim: None, hor_dim: None}, decode_times=False)
             # Replace fillvalue with NaN
@@ -89,7 +94,7 @@ def ncs2zarr(nc_paths, zarr_path):
             # Open each portion of the NetCDF file and combine them
             datasets = []
             for nc_path in nc_portions_path:
-                ds_portion = open_dataset(nc_path)
+                ds_portion = my_open_dataset(nc_path)
                 datasets.append(ds_portion)
             elapsed_time = time.time()
             print(f"  * Combining portions {nc_var}...", end=" ")
@@ -97,7 +102,7 @@ def ncs2zarr(nc_paths, zarr_path):
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
         else:
             # Open the NetCDF file
-            ds = open_dataset(nc_portions_path[0])
+            ds = my_open_dataset(nc_portions_path[0])
 
         # Rename the variable nc_var in the dataset
         if nc_var != var:
@@ -105,8 +110,6 @@ def ncs2zarr(nc_paths, zarr_path):
             print(f"  * Renaming {nc_var} to {var}...", end=" ")
             ds = ds.rename_vars({nc_var: var})
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-        else:
-            print(f"  * {nc_var} is already named {var}")
 
         if include_center_calc:
             default_center = False
@@ -161,18 +164,37 @@ def ncs2zarr(nc_paths, zarr_path):
         legendTitle = ds[var].attrs.get('short_name', nc_var)
         projection = ds.attrs.get('projection', 'desconocida')
 
+        # Dimension renaming
+        dims_mapping = {
+            time_dim: T_DIM,
+            ver_dim: Y_DIM,
+            hor_dim: X_DIM
+        }
+
         # Write the dataset to Zarr in the corresponding group
         zarr_group = os.path.join('/', var)
         elapsed_time = time.time()
         print(f"  * Writing {var} to Zarr...", end=" ")
-        ds[var].chunk({time_dim: chunk_shape[0], ver_dim: chunk_shape[1], hor_dim: chunk_shape[2]}).to_dataset(name=var).to_zarr(store, group=zarr_group, mode='w', write_empty_chunks=False)
+        ds[var] \
+            .chunk({time_dim: chunk_shape[0], ver_dim: chunk_shape[1], hor_dim: chunk_shape[2]}) \
+            .to_dataset(name=var) \
+            .rename(dims_mapping) \
+            .to_zarr(store, group=zarr_group, mode='w', write_empty_chunks=False)
         print(f"[{(time.time() - elapsed_time):.2f} seconds]")
         if calc_min_max:
             # Write varMin and varMax to Zarr
             elapsed_time = time.time()
             print(f"  * Writing {var}_min and {var}_max to Zarr...", end=" ")
-            ds[var+'_min'].chunk({time_dim: -1}).to_dataset(name=var+'_min').to_zarr(store, group=zarr_group, mode='a', write_empty_chunks=False)
-            ds[var+'_max'].chunk({time_dim: -1}).to_dataset(name=var+'_max').to_zarr(store, group=zarr_group, mode='a', write_empty_chunks=False)
+            ds[var+'_min'] \
+                .chunk({time_dim: -1}) \
+                .to_dataset(name=var+'_min') \
+                .rename({time_dim: T_DIM}) \
+                .to_zarr(store, group=zarr_group, mode='a', write_empty_chunks=False)
+            ds[var+'_max'] \
+                .chunk({time_dim: -1}) \
+                .to_dataset(name=var+'_max') \
+                .rename({time_dim: T_DIM}) \
+                .to_zarr(store, group=zarr_group, mode='a', write_empty_chunks=False)
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
         # Add metadata to the group
