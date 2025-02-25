@@ -111,6 +111,18 @@ def ncs2zarr(nc_paths, zarr_path):
             ds = ds.rename_vars({nc_var: var})
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
+        # Check if the spatial dimensions are ordered from smallest to largest and if not, invert them
+        if ds[ver_dim][0] > ds[ver_dim][-1]:
+            elapsed_time = time.time()
+            print(f"  * Inverting {ver_dim}...", end=" ")
+            ds = ds.reindex({ver_dim: ds[ver_dim][::-1]})
+            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
+        if ds[hor_dim][0] > ds[hor_dim][-1]:
+            elapsed_time = time.time()
+            print(f"  * Inverting {hor_dim}...", end=" ")
+            ds = ds.reindex({hor_dim: ds[hor_dim][::-1]})
+            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
+
         if include_center_calc:
             default_center = False
             # Update the global geographical extent
