@@ -10,7 +10,7 @@ nc_paths : list of dict
     - 'time_dim' (str, optional): Name of the time dimension in the NetCDF file. Default is 'time'.
     - 'ver_dim' (str, optional): Name of the vertical dimension in the NetCDF file. Default is 'lat'.
     - 'hor_dim' (str, optional): Name of the horizontal dimension in the NetCDF file. Default is 'lon'.
-    - 'nc_projection' (str, optional): Projection information for the dataset. Default is 'desconocida'.
+    - 'nc_projection' (str, optional): Projection information for the dataset. Default is 'EPSG:4326'.
     - 'calc_min_max' (bool, optional): Whether to calculate minimum and maximum values for each variable over time. Default is True.
     - 'include_center_calc' (bool, optional): Whether to include the file in the calculation of the center of the global geographical extent. Default is False.
     - 'chunk_shape' (tuple of int, optional): Shape of chunks for each dimension (time, latitude, longitude). Default is (16, 128, 128).
@@ -162,7 +162,6 @@ def ncs2zarr(nc_paths, zarr_path):
         # Get metadata
         varTitle = ds[var].attrs.get('long_name', nc_var)
         legendTitle = ds[var].attrs.get('short_name', nc_var)
-        projection = ds.attrs.get('projection', 'desconocida')
 
         # Dimension renaming
         dims_mapping = {
@@ -204,7 +203,7 @@ def ncs2zarr(nc_paths, zarr_path):
         if calc_min_max:
             group.attrs['minVal'] = minVal
             group.attrs['maxVal'] = maxVal
-        group.attrs['projection'] = projection
+        group.attrs['projection'] = nc_projection
 
         print(f"Total processing time for {var}: {(time.time() - var_start_time):.2f} seconds")
 
