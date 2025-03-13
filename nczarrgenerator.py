@@ -90,11 +90,22 @@ def ncs2zarr(nc_paths, zarr_path):
                 print(f"[{(time.time() - elapsed_time):.2f} seconds]")
             return ds
 
+        # Check if the spatial dimensions are ordered from smallest to largest and if not, invert them
+        def invert_dim(ds, dim, nc_path):
+            if ds[dim][0] > ds[dim][-1]:
+                elapsed_time = time.time()
+                print(f"  * Inverting {dim} in {nc_path}...", end=" ")
+                ds = ds.reindex({dim: ds[dim][::-1]})
+                print(f"[{(time.time() - elapsed_time):.2f} seconds]")
+            return ds
+
         if len(nc_portions_path) > 1:
             # Open each portion of the NetCDF file and combine them
             datasets = []
             for nc_path in nc_portions_path:
                 ds_portion = my_open_dataset(nc_path)
+                ds_portion = invert_dim(ds_portion, ver_dim, nc_path)
+                ds_portion = invert_dim(ds_portion, hor_dim, nc_path)
                 datasets.append(ds_portion)
             elapsed_time = time.time()
             print(f"  * Combining portions {nc_var}...", end=" ")
@@ -109,18 +120,6 @@ def ncs2zarr(nc_paths, zarr_path):
             elapsed_time = time.time()
             print(f"  * Renaming {nc_var} to {var}...", end=" ")
             ds = ds.rename_vars({nc_var: var})
-            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-
-        # Check if the spatial dimensions are ordered from smallest to largest and if not, invert them
-        if ds[ver_dim][0] > ds[ver_dim][-1]:
-            elapsed_time = time.time()
-            print(f"  * Inverting {ver_dim}...", end=" ")
-            ds = ds.reindex({ver_dim: ds[ver_dim][::-1]})
-            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-        if ds[hor_dim][0] > ds[hor_dim][-1]:
-            elapsed_time = time.time()
-            print(f"  * Inverting {hor_dim}...", end=" ")
-            ds = ds.reindex({hor_dim: ds[hor_dim][::-1]})
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
         if include_center_calc:
