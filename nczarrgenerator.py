@@ -106,6 +106,7 @@ def ncs2zarr(nc_paths, zarr_path):
                 ds_portion = my_open_dataset(nc_path)
                 ds_portion = invert_dim(ds_portion, ver_dim, nc_path)
                 ds_portion = invert_dim(ds_portion, hor_dim, nc_path)
+                ds_portion = ds_portion[[nc_var]]   # Keep only the variable of interest
                 datasets.append(ds_portion)
             elapsed_time = time.time()
             print(f"  * Combining portions {nc_var}...", end=" ")
