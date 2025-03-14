@@ -108,9 +108,41 @@ def ncs2zarr(nc_paths, zarr_path):
                 ds_portion = sort_dim(ds_portion, hor_dim, nc_path)
                 ds_portion = ds_portion[[nc_var]]   # Keep only the variable of interest
                 datasets.append(ds_portion)
+            # Calcular la grilla completa de coordenadas
+            # Find min, max coordinates across all datasets
+            ver_min = min([ds[ver_dim].min().item() for ds in datasets])
+            ver_max = max([ds[ver_dim].max().item() for ds in datasets])
+            hor_min = min([ds[hor_dim].min().item() for ds in datasets])
+            hor_max = max([ds[hor_dim].max().item() for ds in datasets])
+
+            # Find the smallest step size across all datasets
+            ver_steps = []
+            hor_steps = []
+            for ds in datasets:
+                if len(ds[ver_dim]) > 1:
+                    diffs = np.diff(np.sort(ds[ver_dim].values))
+                    min_diff = np.min(diffs[diffs > 0]) if np.any(diffs > 0) else None
+                    if min_diff is not None:
+                        ver_steps.append(min_diff)
+
+                if len(ds[hor_dim]) > 1:
+                    diffs = np.diff(np.sort(ds[hor_dim].values))
+                    min_diff = np.min(diffs[diffs > 0]) if np.any(diffs > 0) else None
+                    if min_diff is not None:
+                        hor_steps.append(min_diff)
+
+            # Get smallest step size for each dimension
+            ver_step = min(ver_steps) if ver_steps else 1.0
+            hor_step = min(hor_steps) if hor_steps else 1.0
+
+            # Create regular grid from min to max with the step size
+            all_ver = np.arange(ver_min, ver_max + ver_step*0.5, ver_step)
+            all_hor = np.arange(hor_min, hor_max + hor_step*0.5, hor_step)
+            # Reindexar cada dataset sobre la grilla completa
+            datasets = [ ds.reindex({ver_dim: all_ver, hor_dim: all_hor}) for ds in datasets ]
             elapsed_time = time.time()
             print(f"  * Combining portions {nc_var}...", end=" ")
-            ds = xr.combine_by_coords(datasets, data_vars=[nc_var], combine_attrs='override')
+            ds = xr.merge(datasets, join="outer", combine_attrs='override')
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
         else:
             # Open the NetCDF file
