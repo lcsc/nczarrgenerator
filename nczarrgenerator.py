@@ -91,7 +91,7 @@ def ncs2zarr(nc_paths, zarr_path):
             return ds
 
         # Check if the spatial dimensions are ordered from smallest to largest and if not, invert them
-        def invert_dim(ds, dim, nc_path):
+        def sort_dim(ds, dim, nc_path):
             if ds[dim][0] > ds[dim][-1]:
                 elapsed_time = time.time()
                 print(f"  * Inverting {dim} in {nc_path}...", end=" ")
@@ -104,8 +104,8 @@ def ncs2zarr(nc_paths, zarr_path):
             datasets = []
             for nc_path in nc_portions_path:
                 ds_portion = my_open_dataset(nc_path)
-                ds_portion = invert_dim(ds_portion, ver_dim, nc_path)
-                ds_portion = invert_dim(ds_portion, hor_dim, nc_path)
+                ds_portion = sort_dim(ds_portion, ver_dim, nc_path)
+                ds_portion = sort_dim(ds_portion, hor_dim, nc_path)
                 ds_portion = ds_portion[[nc_var]]   # Keep only the variable of interest
                 datasets.append(ds_portion)
             elapsed_time = time.time()
