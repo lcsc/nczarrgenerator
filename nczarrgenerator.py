@@ -138,8 +138,13 @@ def ncs2zarr(nc_paths, zarr_path):
             # Create regular grid from min to max with the step size
             all_ver = np.arange(ver_min, ver_max + ver_step*0.5, ver_step)
             all_hor = np.arange(hor_min, hor_max + hor_step*0.5, hor_step)
-            # Reindex each dataset on the complete grid
-            datasets = [ ds.reindex({ver_dim: all_ver, hor_dim: all_hor}) for ds in datasets ]
+
+            # Reindex each dataset on the complete grid with nearest neighbor interpolation to avoid NaNs
+            elapsed_time = time.time()
+            print(f"  * Reindexing portions {nc_var}...", end=" ")
+            datasets = [ ds.reindex({ver_dim: all_ver, hor_dim: all_hor}, method='nearest') for ds in datasets ]
+            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
+
             elapsed_time = time.time()
             print(f"  * Combining portions {nc_var}...", end=" ")
             ds = xr.merge(datasets, join="outer", combine_attrs='override')
