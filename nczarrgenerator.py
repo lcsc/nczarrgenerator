@@ -108,7 +108,7 @@ def ncs2zarr(nc_paths, zarr_path):
                 ds_portion = sort_dim(ds_portion, hor_dim, nc_path)
                 ds_portion = ds_portion[[nc_var]]   # Keep only the variable of interest
                 datasets.append(ds_portion)
-            # Calcular la grilla completa de coordenadas
+
             # Find min, max coordinates across all datasets
             ver_min = min([ds[ver_dim].min().item() for ds in datasets])
             ver_max = max([ds[ver_dim].max().item() for ds in datasets])
@@ -147,6 +147,8 @@ def ncs2zarr(nc_paths, zarr_path):
         else:
             # Open the NetCDF file
             ds = my_open_dataset(nc_portions_path[0])
+            ds = sort_dim(ds, ver_dim, nc_portions_path[0])
+            ds = sort_dim(ds, hor_dim, nc_portions_path[0])
 
         # Rename the variable nc_var in the dataset
         if nc_var != var:
