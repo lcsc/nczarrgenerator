@@ -142,12 +142,30 @@ def ncs2zarr(nc_paths, zarr_path):
             # Reindex each dataset on the complete grid with nearest neighbor interpolation to avoid NaNs
             elapsed_time = time.time()
             print(f"  * Reindexing portions {nc_var}...", end=" ")
-            datasets = [ ds.reindex({ver_dim: all_ver, hor_dim: all_hor}, method='nearest') for ds in datasets ]
+            reindexed_datasets = []
+            for ds in datasets:
+                # Add an additional step to each end of the coordinates
+                ver_ds_vals = ds[ver_dim].values
+                hor_ds_vals = ds[hor_dim].values
+                ver_ds_step = abs(ver_ds_vals[1] - ver_ds_vals[0]) if len(ver_ds_vals) > 1 else 1.0
+                hor_ds_step = abs(hor_ds_vals[1] - hor_ds_vals[0]) if len(hor_ds_vals) > 1 else 1.0
+
+                # Create extended coordinates
+                extended_ver = np.concatenate([[ver_ds_vals.min() - ver_ds_step], ver_ds_vals, [ver_ds_vals.max() + ver_ds_step]])
+                extended_hor = np.concatenate([[hor_ds_vals.min() - hor_ds_step], hor_ds_vals, [hor_ds_vals.max() + hor_ds_step]])
+
+                # Extend the dataset with NaNs at the edges
+                extended_ds = ds.reindex({ver_dim: extended_ver, hor_dim: extended_hor})
+
+                # Reindex the extended dataset to the common grid
+                reindexed_ds = extended_ds.reindex({ver_dim: all_ver, hor_dim: all_hor}, method='nearest')
+                reindexed_datasets.append(reindexed_ds)
+
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
             elapsed_time = time.time()
             print(f"  * Combining portions {nc_var}...", end=" ")
-            ds = xr.merge(datasets, join="outer", combine_attrs='override')
+            ds = xr.merge(reindexed_datasets, join="outer", combine_attrs='override')
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
         else:
             # Open the NetCDF file
