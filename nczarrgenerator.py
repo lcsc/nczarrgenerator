@@ -160,7 +160,6 @@ def ncs2zarr(nc_paths, zarr_path):
                 # Reindex the extended dataset to the common grid
                 reindexed_ds = extended_ds.reindex({ver_dim: all_ver, hor_dim: all_hor}, method='nearest')
                 reindexed_datasets.append(reindexed_ds)
-
             print(f"[{(time.time() - elapsed_time):.2f} seconds]")
 
             elapsed_time = time.time()
