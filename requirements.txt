@@ -42,5 +42,5 @@ tzdata==2025.2
 wrapt==1.17.2
 xarray==2025.3.1
 xyzservices==2025.1.0
-zarr==3.0.6
+zarr==2.18.5
 zipp==3.21.0
