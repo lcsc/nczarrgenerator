@@ -4,6 +4,6 @@ Por ejemplo para el visor amm. Necesitamos los ficheros NC en el directorio nc/a
 
 ```bash
 $ mkvirtualenv nczarrgenerator
-$ pip install -r requirements.txt
-$ python amm.py
+(nczarrgenerator) $ pip install -r requirements.txt
+(nczarrgenerator) $ python amm.py
 ```
