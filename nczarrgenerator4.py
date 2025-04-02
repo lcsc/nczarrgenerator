@@ -10,7 +10,7 @@ X_DIM = 'x'
 Y_DIM = 'y'
 T_DIM = 'time'
 
-def ncs2zarr(nc_paths, zarr_path, beginning=False):
+def ncs2zarr(nc_paths, zarr_path, beginning=True):
     total_start_time = time.time()
 
     if beginning or not os.path.exists(zarr_path):
