@@ -61,6 +61,13 @@ def ncs2zarr(nc_paths, zarr_path, beginning=True):
                 print(f"* Processing time chunk {chunk_idx+1}/{num_chunks} (indices {chunk_start}:{chunk_end})...")
 
                 ds = nc_ds.isel({time_dim: time_slice})                                                  # Selecciona el chunk de tiempo
+                if time_dim in ds.coords:
+                    time_attrs_original = dict(nc_ds[time_dim].attrs)
+                    # Conservamos el valor pero eliminamos atributos problemáticos
+                    if 'units' in ds[time_dim].attrs:
+                        ds[time_dim].attrs.pop('units', None)
+                    if 'calendar' in ds[time_dim].attrs:
+                        ds[time_dim].attrs.pop('calendar', None)
 
                 if nc_var != var:
                     ds = ds.rename_vars({nc_var: var})
@@ -111,12 +118,12 @@ def ncs2zarr(nc_paths, zarr_path, beginning=True):
         # Close the dataset to free up resources
         nc_ds.close()
 
-        consolidate_time_dimension(store, var)
+        consolidate_time_dimension(store, var, time_attrs_original)
         print(f"Total processing time for {var}: {(time.time() - var_start_time):.2f} seconds")
 
     print(f"Conversion completed. Total processing time: {(time.time() - total_start_time):.2f} seconds")
 
-def consolidate_time_dimension(store, var):
+def consolidate_time_dimension(store, var, original_time_attrs=None):
     """
     Consolidate the time dimension of a Zarr dataset into a single chunk."
     """
@@ -132,6 +139,12 @@ def consolidate_time_dimension(store, var):
         # Guardar datos originales
         time_data = var_group[T_DIM][:]
         time_attrs = dict(var_group[T_DIM].attrs)
+
+        # Preservar atributos originales si existen
+        if original_time_attrs:
+            # Mezclar atributos actuales con originales, priorizando originales
+            for key, value in original_time_attrs.items():
+                time_attrs[key] = value
         
         # Eliminar el array original
         del var_group[T_DIM]
