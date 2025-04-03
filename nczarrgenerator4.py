@@ -102,6 +102,14 @@ def _process_beginning_mode(store, nc_info):
     dims_mapping = {time_dim: T_DIM, ver_dim: Y_DIM, hor_dim: X_DIM}
 
     nc_ds = xr.open_dataset(nc_portions_path[0], chunks=None, decode_times=False)
+
+    # Remove _FillValue or missing_value in variable attributes and encoding
+    for attr_name in ['_FillValue', 'missing_value']:
+        if attr_name in nc_ds[nc_var].attrs:
+            del nc_ds[nc_var].attrs[attr_name]
+        if hasattr(nc_ds[nc_var], 'encoding') and attr_name in nc_ds[nc_var].encoding:
+            del nc_ds[nc_var].encoding[attr_name]
+
     time_coords = nc_ds[time_dim].values
     time_steps = len(time_coords)
 
