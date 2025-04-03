@@ -88,6 +88,11 @@ def _initialize_zarr_store(zarr_path, beginning):
     zarr.group(store=store, overwrite=beginning)
     return store
 
+def sort_dim(ds, dim):
+    if ds[dim][0] > ds[dim][-1]:
+        ds = ds.reindex({dim: ds[dim][::-1]})
+    return ds
+
 def _process_beginning_mode(store, nc_info):
     """Process NetCDF in beginning mode with temporal chunking."""
     nc_portions_path = nc_info['path']
@@ -102,6 +107,8 @@ def _process_beginning_mode(store, nc_info):
     dims_mapping = {time_dim: T_DIM, ver_dim: Y_DIM, hor_dim: X_DIM}
 
     nc_ds = xr.open_dataset(nc_portions_path[0], chunks=None, decode_times=False)
+    nc_ds = sort_dim(nc_ds, hor_dim)
+    nc_ds = sort_dim(nc_ds, ver_dim)
 
     # Remove _FillValue or missing_value in variable attributes and encoding
     for attr_name in ['_FillValue', 'missing_value']:
@@ -169,8 +176,13 @@ def _process_append_mode(store, nc_info):
     nc_var = nc_info['nc_var']
     var = nc_info['var']
     time_dim = nc_info.get('time_dim', 'time')
+    ver_dim = nc_info.get('ver_dim', 'lat')
+    hor_dim = nc_info.get('hor_dim', 'lon')
 
     nc_ds = xr.open_dataset(nc_portions_path[0], chunks=None, decode_times=False)
+    nc_ds = sort_dim(nc_ds, hor_dim)
+    nc_ds = sort_dim(nc_ds, ver_dim)
+
     time_coords = nc_ds[time_dim].values
     time_steps = len(time_coords)
 
