@@ -64,12 +64,13 @@ def ncs2zarr(nc_paths, zarr_path, beginning=True):
         print(f"== Processing {var} ==")
 
         if beginning:
-            time_attrs_original = _process_beginning_mode(store, nc_info)
+            time_attrs_original, var_attrs_original = _process_beginning_mode(store, nc_info)
         else:
             _process_append_mode(store, nc_info)
             time_attrs_original = {}  # In append mode, we don't modify time attributes
+            var_attrs_original = {}   # In append mode, we don't modify variable attributes
 
-        consolidate_time_dimension(store, var, time_attrs_original)
+        _consolidate_time_and_restore_attrs(store, var, time_attrs_original, var_attrs_original)
         print(f"Total processing time for {var}: {(time.time() - var_start_time):.2f} seconds")
 
     # Consolidate Zarr metadata (to avoid errors when calling xr.open_zarr())
@@ -110,8 +111,11 @@ def _process_beginning_mode(store, nc_info):
     nc_ds = _sort_dim(nc_ds, hor_dim)
     nc_ds = _sort_dim(nc_ds, ver_dim)
 
-    # Remove _FillValue or missing_value in variable attributes and encoding
-    for attr_name in ['_FillValue', 'missing_value']:
+    # Save original variable attributes
+    var_attrs_original = dict(nc_ds[nc_var].attrs) if nc_var in nc_ds else {}
+
+    # Remove _FillValue, missing_value, and units in variable attributes and encoding
+    for attr_name in ['_FillValue', 'missing_value', 'units']:
         if attr_name in nc_ds[nc_var].attrs:
             del nc_ds[nc_var].attrs[attr_name]
         if hasattr(nc_ds[nc_var], 'encoding') and attr_name in nc_ds[nc_var].encoding:
@@ -134,7 +138,7 @@ def _process_beginning_mode(store, nc_info):
                            time_dim, ver_dim, hor_dim, nc_var, var, dims_mapping, chunk_shape)
 
     nc_ds.close()
-    return time_attrs_original
+    return time_attrs_original, var_attrs_original
 
 def _process_time_chunk(nc_ds, store, chunk_idx, time_chunk_size, time_steps,
                        time_dim, ver_dim, hor_dim, nc_var, var, dims_mapping, chunk_shape):
@@ -235,12 +239,12 @@ def _add_new_time(store, var, time_val, time_slice, zarr_ds):
 
     print(f"  Added new date at index {current_length}")
 
-def consolidate_time_dimension(store, var, original_time_attrs=None):
+def _consolidate_time_and_restore_attrs(store, var, time_attrs_original=None, var_attrs_original=None):
     """
-    Consolidate the time dimension of a Zarr dataset into a single chunk."
+    Consolidate the time dimension of a Zarr dataset into a single chunk and restore original attributes.
     """
     # After processing all chunks
-    print("Consolidating time dimension...")
+    print("Consolidating time dimension and restore original attributes...")
 
     # Get direct access to the Zarr array
     z_group = zarr.open_group(store=store, mode='a')
@@ -253,24 +257,38 @@ def consolidate_time_dimension(store, var, original_time_attrs=None):
         time_attrs = dict(var_group[T_DIM].attrs)
 
         # Preserve original attributes if they exist
-        if original_time_attrs:
+        if time_attrs_original:
             # Merge current attributes with original ones, prioritizing original attributes
-            for key, value in original_time_attrs.items():
+            for key, value in time_attrs_original.items():
                 time_attrs[key] = value
 
         # Delete the original array
         del var_group[T_DIM]
+
+        # Get original fill_value or use NaN
+        original_fill_value = np.nan  # Default value
+        if '_FillValue' in time_attrs:
+            original_fill_value = time_attrs['_FillValue']
+        elif 'missing_value' in time_attrs:
+            original_fill_value = time_attrs['missing_value']
 
         # Recreate the array with a single chunk
         var_group.create_dataset(
             T_DIM, 
             data=time_data,
             chunks=(len(time_data),),  # A single chunk for the entire dimension
-            dtype=time_data.dtype
+            dtype=time_data.dtype,
+            fill_value=original_fill_value
         )
 
         # Restore attributes
         for key, value in time_attrs.items():
             var_group[T_DIM].attrs[key] = value
 
-        print("Time dimension consolidated into a single chunk")
+    # Restore original variable attributes if they exist
+    if var_attrs_original and var in var_group:
+        var_array = var_group[var]
+
+        # Update with original attributes
+        for key, value in var_attrs_original.items():
+            var_array.attrs[key] = value
