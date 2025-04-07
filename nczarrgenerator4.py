@@ -266,7 +266,7 @@ def _consolidate_time_and_restore_attrs(store, var, time_attrs_original=None, va
         del var_group[T_DIM]
 
         # Get original fill_value or use NaN
-        original_fill_value = np.nan  # Default value
+        original_fill_value = None  # Default value
         if '_FillValue' in time_attrs:
             original_fill_value = time_attrs['_FillValue']
         elif 'missing_value' in time_attrs:
