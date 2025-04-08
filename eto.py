@@ -17,4 +17,5 @@ netcdfs = [
 zarr_path = 'nc/eto.zarr'
 ncs2zarr(netcdfs, zarr_path)
 
-# 16m54s minutos con max/min
+# 16m54s con max/min; nczarrgenerator_all
+# 800s sin max/min; nczarrgenerator

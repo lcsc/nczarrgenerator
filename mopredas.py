@@ -11,4 +11,5 @@ netcdfs = [
 zarr_path = 'nc/mopredas.zarr'
 ncs2zarr(netcdfs, zarr_path)
 
-# 2s minutos con max/min
+# 2s con max/min; nczarrgenerator_all
+# 10s sin max/min; nczarrgenerator

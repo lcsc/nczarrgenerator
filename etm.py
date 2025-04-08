@@ -85,6 +85,7 @@ netcdfs = [
     {'path': ['nc/etm/percentiles/d5/tmax_p99_cumulative_5d_all.nc'], 'nc_var': 'Maximum Temperature', 'var': 'acc_d5_tmax_q99', 'time_dim': 'time', 'ver_dim': 'lat', 'hor_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (12, 81, 113)},
 ]
 zarr_path = 'nc/etm.zarr'
-ncs2zarr(netcdfs, zarr_path)
+ncs2zarr(netcdfs, zarr_path, beginning=True)
 
-# 37 minutos con max/min
+# 37 minutos con max/min; nczarrgenerator_all
+# 67.65 minutos sin max/min; nczarrgenerator

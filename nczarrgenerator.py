@@ -16,6 +16,10 @@ nc_paths : list of dict
     - 'chunk_shape' (tuple of int, optional): Shape of chunks for each dimension (time, latitude, longitude). Default is (16, 128, 128).
 zarr_path : str
     Path to the output Zarr store.
+beginning : bool, optional
+    Whether to create a new Zarr store or update an existing one. Default is True.
+    If True, a new Zarr store will be created. If False, the existing store will be updated.
+    This parameter is ignored if the Zarr store does not exist.
 Returns
 -------
 None
@@ -34,14 +38,14 @@ netcdfs = [
     {'path': ['/path/to/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
 ]
 zarr_path = '/path/to/vi-anomalies.zarr'
-ncs2zarr(netcdfs, zarr_path)
+ncs2zarr(netcdfs, zarr_path, beginning=True)
 """
 
 import xarray as xr
 import zarr
-import numpy as np
 import os
-import pyproj
+import math
+import numpy as np
 import time
 
 # Constants for dimensions names to be used in the Zarr store
@@ -49,274 +53,327 @@ X_DIM = 'x'
 Y_DIM = 'y'
 T_DIM = 'time'
 
-def ncs2zarr(nc_paths, zarr_path):
+def ncs2zarr(nc_paths, zarr_path, beginning=True):
+    """Convert NetCDF files to Zarr store with proper organization."""
     total_start_time = time.time()
-
-    # Initialize variables for global extent
-    lat_min_global = np.inf
-    lat_max_global = -np.inf
-    lon_min_global = np.inf
-    lon_max_global = -np.inf
-    default_center = True
-
-    # Create a root Zarr group
-    store = zarr.DirectoryStore(zarr_path)
-    root_group = zarr.group(store=store, overwrite=True)
+    store = _initialize_zarr_store(zarr_path, beginning)
 
     for nc_info in nc_paths:
         var_start_time = time.time()
-        nc_portions_path = nc_info['path']
-        nc_var = nc_info['nc_var']
         var = nc_info['var']
-        time_dim = nc_info.get('time_dim', 'time')
-        ver_dim = nc_info.get('ver_dim', 'lat')
-        hor_dim = nc_info.get('hor_dim', 'lon')
-        nc_projection = nc_info.get('nc_projection', 'EPSG:4326')
-        calc_min_max = nc_info.get('calc_min_max', True)
-        include_center_calc = nc_info.get('include_center_calc', False)
-        chunk_shape = nc_info.get('chunk_shape', (16, 128, 128))
+        print(f"== Processing {var} ==")
 
-        print(f"Processing {var}...")
-
-        def my_open_dataset(nc_path):
-            # Open the NetCDF file
-            ds = xr.open_dataset(nc_path, chunks={time_dim: chunk_shape[0], ver_dim: None, hor_dim: None}, decode_times=False)
-            # Replace fillvalue with NaN
-            fillvalue = ds[nc_var].encoding.get('_FillValue', None)
-            if fillvalue is not None and not np.isnan(fillvalue):
-                elapsed_time = time.time()
-                print(f"  * Replacing fillvalue {fillvalue} with NaN for {var} in {nc_path}...", end=" ")
-                ds[nc_var] = ds[nc_var].astype(fillvalue.dtype).where(ds[nc_var].astype(fillvalue.dtype) != fillvalue, np.nan)
-                print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-            return ds
-
-        # Check if the spatial dimensions are ordered from smallest to largest and if not, invert them
-        def sort_dim(ds, dim, nc_path):
-            if ds[dim][0] > ds[dim][-1]:
-                elapsed_time = time.time()
-                print(f"  * Inverting {dim} in {nc_path}...", end=" ")
-                ds = ds.reindex({dim: ds[dim][::-1]})
-                print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-            return ds
-
-        if len(nc_portions_path) > 1:
-            # Open each portion of the NetCDF file and combine them
-            datasets = []
-            for nc_path in nc_portions_path:
-                ds_portion = my_open_dataset(nc_path)
-                ds_portion = sort_dim(ds_portion, ver_dim, nc_path)
-                ds_portion = sort_dim(ds_portion, hor_dim, nc_path)
-                ds_portion = ds_portion[[nc_var]]   # Keep only the variable of interest
-                datasets.append(ds_portion)
-
-            # Find min, max coordinates across all datasets
-            ver_min = min([ds[ver_dim].min().item() for ds in datasets])
-            ver_max = max([ds[ver_dim].max().item() for ds in datasets])
-            hor_min = min([ds[hor_dim].min().item() for ds in datasets])
-            hor_max = max([ds[hor_dim].max().item() for ds in datasets])
-
-            # Find the smallest step size across all datasets
-            ver_steps = []
-            hor_steps = []
-            for ds in datasets:
-                if len(ds[ver_dim]) > 1:
-                    diffs = np.diff(np.sort(ds[ver_dim].values))
-                    min_diff = np.min(diffs[diffs > 0]) if np.any(diffs > 0) else None
-                    if min_diff is not None:
-                        ver_steps.append(min_diff)
-
-                if len(ds[hor_dim]) > 1:
-                    diffs = np.diff(np.sort(ds[hor_dim].values))
-                    min_diff = np.min(diffs[diffs > 0]) if np.any(diffs > 0) else None
-                    if min_diff is not None:
-                        hor_steps.append(min_diff)
-
-            # Get smallest step size for each dimension
-            ver_step = min(ver_steps) if ver_steps else 1.0
-            hor_step = min(hor_steps) if hor_steps else 1.0
-
-            # Create regular grid from min to max with the step size
-            all_ver = np.arange(ver_min, ver_max + ver_step*0.5, ver_step)
-            all_hor = np.arange(hor_min, hor_max + hor_step*0.5, hor_step)
-
-            # Reindex each dataset on the complete grid with nearest neighbor interpolation to avoid NaNs
-            elapsed_time = time.time()
-            print(f"  * Reindexing portions {nc_var}...", end=" ")
-            reindexed_datasets = []
-            for ds in datasets:
-                # Add an additional step to each end of the coordinates
-                ver_ds_vals = ds[ver_dim].values
-                hor_ds_vals = ds[hor_dim].values
-                ver_ds_step = abs(ver_ds_vals[1] - ver_ds_vals[0]) if len(ver_ds_vals) > 1 else 1.0
-                hor_ds_step = abs(hor_ds_vals[1] - hor_ds_vals[0]) if len(hor_ds_vals) > 1 else 1.0
-
-                # Create extended coordinates
-                extended_ver = np.concatenate([[ver_ds_vals.min() - ver_ds_step], ver_ds_vals, [ver_ds_vals.max() + ver_ds_step]])
-                extended_hor = np.concatenate([[hor_ds_vals.min() - hor_ds_step], hor_ds_vals, [hor_ds_vals.max() + hor_ds_step]])
-
-                # Extend the dataset with NaNs at the edges
-                extended_ds = ds.reindex({ver_dim: extended_ver, hor_dim: extended_hor})
-
-                # Reindex the extended dataset to the common grid
-                reindexed_ds = extended_ds.reindex({ver_dim: all_ver, hor_dim: all_hor}, method='nearest')
-                reindexed_datasets.append(reindexed_ds)
-            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-
-            elapsed_time = time.time()
-            print(f"  * Combining portions {nc_var}...", end=" ")
-            ds = xr.merge(reindexed_datasets, join="outer", combine_attrs='override')
-            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
+        if beginning:
+            time_attrs_original, var_attrs_original = _process_beginning_mode(store, nc_info)
         else:
-            # Open the NetCDF file
-            ds = my_open_dataset(nc_portions_path[0])
-            ds = sort_dim(ds, ver_dim, nc_portions_path[0])
-            ds = sort_dim(ds, hor_dim, nc_portions_path[0])
+            _process_append_mode(store, nc_info)
+            time_attrs_original = {}  # In append mode, we don't modify time attributes
+            var_attrs_original = {}   # In append mode, we don't modify variable attributes
 
-        # Rename the variable nc_var in the dataset
-        if nc_var != var:
-            elapsed_time = time.time()
-            print(f"  * Renaming {nc_var} to {var}...", end=" ")
-            ds = ds.rename_vars({nc_var: var})
-            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-
-        if include_center_calc:
-            default_center = False
-            # Update the global geographical extent
-            lat_min = ds[ver_dim].min(skipna=True).compute().item()
-            lat_max = ds[ver_dim].max(skipna=True).compute().item()
-            lon_min = ds[hor_dim].min(skipna=True).compute().item()
-            lon_max = ds[hor_dim].max(skipna=True).compute().item()
-
-            # Convert to EPSG:4326 with pyproj
-            crs = pyproj.CRS.from_string(nc_projection)
-            transformer = pyproj.Transformer.from_crs(crs, 'EPSG:4326', always_xy=True)
-            lon_min, lat_min = transformer.transform(lon_min, lat_min)
-            lon_max, lat_max = transformer.transform(lon_max, lat_max)
-
-            lat_min_global = min(lat_min_global, lat_min)
-            lat_max_global = max(lat_max_global, lat_max)
-            lon_min_global = min(lon_min_global, lon_min)
-            lon_max_global = max(lon_max_global, lon_max)
-
-        if calc_min_max:
-            # Calculate varMin and varMax for each date
-            elapsed_time = time.time()
-            print(f"  * Calculating {var}_min and {var}_max for each date...", end=" ")
-            varMin = ds[var].min(dim=[ver_dim, hor_dim], skipna=True).compute()
-            varMax = ds[var].max(dim=[ver_dim, hor_dim], skipna=True).compute()
-            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-
-            # Create DataArray for varMin and varMax
-            elapsed_time = time.time()
-            print(f"  * Creating DataArrays for {var}_min and {var}_max...", end=" ")
-            varMin_da = xr.DataArray(varMin, dims=[time_dim], name=f'{var}_min')
-            varMax_da = xr.DataArray(varMax, dims=[time_dim], name=f'{var}_max')
-            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-
-            # Add the dataarrays varMin_da and varMax_da to the dataset
-            elapsed_time = time.time()
-            print(f"  * Adding {var}_min and {var}_max to the dataset...", end=" ")
-            ds[var+'_min'] = varMin_da
-            ds[var+'_max'] = varMax_da
-            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-
-            # Calculate global minVal and maxVal
-            elapsed_time = time.time()
-            print(f"  * Calculating global minVal and maxVal for {var}...", end=" ")
-            minVal = varMin.min().item()
-            maxVal = varMax.max().item()
-            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-
-        # Get metadata
-        varTitle = ds[var].attrs.get('long_name', nc_var)
-        legendTitle = ds[var].attrs.get('short_name', nc_var)
-
-        # Dimension renaming
-        dims_mapping = {
-            time_dim: T_DIM,
-            ver_dim: Y_DIM,
-            hor_dim: X_DIM
-        }
-
-        # Write the dataset to Zarr in the corresponding group
-        zarr_group = os.path.join('/', var)
-        elapsed_time = time.time()
-        print(f"  * Writing {var} to Zarr...", end=" ")
-        ds[var] \
-            .chunk({time_dim: chunk_shape[0], ver_dim: chunk_shape[1], hor_dim: chunk_shape[2]}) \
-            .to_dataset(name=var) \
-            .rename(dims_mapping) \
-            .to_zarr(store, group=zarr_group, mode='w', write_empty_chunks=False)
-        print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-        if calc_min_max:
-            # Write varMin and varMax to Zarr
-            elapsed_time = time.time()
-            print(f"  * Writing {var}_min and {var}_max to Zarr...", end=" ")
-            ds[var+'_min'] \
-                .chunk({time_dim: -1}) \
-                .to_dataset(name=var+'_min') \
-                .rename({time_dim: T_DIM}) \
-                .to_zarr(store, group=zarr_group, mode='a', write_empty_chunks=False)
-            ds[var+'_max'] \
-                .chunk({time_dim: -1}) \
-                .to_dataset(name=var+'_max') \
-                .rename({time_dim: T_DIM}) \
-                .to_zarr(store, group=zarr_group, mode='a', write_empty_chunks=False)
-            print(f"[{(time.time() - elapsed_time):.2f} seconds]")
-
-        # Add metadata to the group
-        group = root_group[zarr_group]
-        group.attrs['varTitle'] = varTitle
-        group.attrs['legendTitle'] = legendTitle
-        if calc_min_max:
-            group.attrs['minVal'] = minVal
-            group.attrs['maxVal'] = maxVal
-        group.attrs['projection'] = nc_projection
-
+        _consolidate_time_and_restore_attrs(store, var, time_attrs_original, var_attrs_original)
         print(f"Total processing time for {var}: {(time.time() - var_start_time):.2f} seconds")
 
-    # Calculate zoom level (this is an approximation)
-    def calculate_zoom(lat_min, lat_max, lon_min, lon_max):
-        lat_extent = lat_max - lat_min
-        lon_extent = lon_max - lon_min
-        max_extent = max(lat_extent, lon_extent)
-        # Assume zoom level is based on the maximum extent
-        if max_extent >= 180:
-            zoom = 1
-        elif max_extent >= 90:
-            zoom = 2
-        elif max_extent >= 45:
-            zoom = 3
-        elif max_extent >= 22.5:
-            zoom = 4
-        elif max_extent >= 11.25:
-            zoom = 5
-        elif max_extent >= 5.625:
-            zoom = 6
-        elif max_extent >= 2.813:
-            zoom = 7
-        elif max_extent >= 1.406:
-            zoom = 8
-        elif max_extent >= 0.703:
-            zoom = 9
-        else:
-            zoom = 10
-        return zoom
-
-    # Calculate the center of the global geographical extent
-    if default_center:
-        center_lat = 0
-        center_lon = 0
-        zoom_level = 1
-    else:
-        center_lat = (lat_min_global + lat_max_global) / 2
-        center_lon = (lon_min_global + lon_max_global) / 2
-        zoom_level = calculate_zoom(lat_min_global, lat_max_global, lon_min_global, lon_max_global)
-
-    # Add metadata to the root group
-    root_group.attrs['center_lat'] = center_lat
-    root_group.attrs['center_lon'] = center_lon
-    root_group.attrs['zoom_level'] = zoom_level
-    root_group.attrs['variables'] = [nc_info['var'] for nc_info in nc_paths]
-
+    # Consolidate Zarr metadata (to avoid errors when calling xr.open_zarr())
+    zarr.consolidate_metadata(store)
     print(f"Conversion completed. Total processing time: {(time.time() - total_start_time):.2f} seconds")
+
+def _initialize_zarr_store(zarr_path, beginning):
+    """Initialize or open the Zarr store."""
+    if beginning or not os.path.exists(zarr_path):
+        print(f"Creating new Zarr store at {zarr_path}")
+        beginning = True
+    else:
+        print(f"Updating Zarr store at {zarr_path}")
+
+    store = zarr.DirectoryStore(zarr_path)
+    zarr.group(store=store, overwrite=beginning)
+    return store
+
+def _sort_dim(ds, dim):
+    if ds[dim][0] > ds[dim][-1]:
+        ds = ds.reindex({dim: ds[dim][::-1]})
+    return ds
+
+def _my_open_dataset(nc_path, ver_dim, hor_dim, chunks=None, decode_times=False):
+    ds_portion = xr.open_dataset(nc_path, chunks=chunks, decode_times=decode_times)
+    ds_portion = _sort_dim(ds_portion, ver_dim)
+    return _sort_dim(ds_portion, hor_dim)
+
+def _process_beginning_mode(store, nc_info):
+    """Process NetCDF in beginning mode with temporal chunking."""
+    nc_portions_path = nc_info['path']
+    nc_var = nc_info['nc_var']
+    var = nc_info['var']
+    time_dim = nc_info.get('time_dim', 'time')
+    ver_dim = nc_info.get('ver_dim', 'lat')
+    hor_dim = nc_info.get('hor_dim', 'lon')
+    chunk_shape = nc_info.get('chunk_shape', (16, 128, 128))
+
+    # Dimension mapping
+    dims_mapping = {time_dim: T_DIM, ver_dim: Y_DIM, hor_dim: X_DIM}
+
+    # Open all NetCDF portions
+    nc_datasets = []
+    for nc_path in nc_portions_path:
+        ds = _my_open_dataset(nc_path, ver_dim, hor_dim, decode_times=False)
+        nc_datasets.append(ds)
+
+    # Save original variable attributes
+    var_attrs_original = dict(nc_datasets[0][nc_var].attrs) if nc_var in nc_datasets[0] else {}
+
+    for nc_ds in nc_datasets:
+        # Remove _FillValue, missing_value, and units in variable attributes and encoding
+        for attr_name in ['_FillValue', 'missing_value', 'units']:
+            if attr_name in nc_ds[nc_var].attrs:
+                del nc_ds[nc_var].attrs[attr_name]
+            if hasattr(nc_ds[nc_var], 'encoding') and attr_name in nc_ds[nc_var].encoding:
+                del nc_ds[nc_var].encoding[attr_name]
+
+    time_coords = nc_datasets[0][time_dim].values
+    time_steps = len(time_coords)
+
+    # Save original time attributes
+    time_attrs_original = dict(nc_datasets[0][time_dim].attrs) if time_dim in nc_datasets[0].coords else {}
+
+    # Configure chunking
+    time_chunk_size = chunk_shape[0]
+    num_chunks = math.ceil(time_steps / time_chunk_size)
+    print(f"Processing in {num_chunks} temporal chunks of size {time_chunk_size}:")
+
+    # Process each temporal chunk
+    for chunk_idx in range(num_chunks):
+        _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_steps,
+                            time_dim, ver_dim, hor_dim, nc_var, var, dims_mapping, chunk_shape)
+
+    return time_attrs_original, var_attrs_original
+
+def _combine_netcdf_portions(datasets, ver_dim, hor_dim):
+    # Find min, max coordinates across all datasets
+    ver_min = min([ds[ver_dim].min().item() for ds in datasets])
+    ver_max = max([ds[ver_dim].max().item() for ds in datasets])
+    hor_min = min([ds[hor_dim].min().item() for ds in datasets])
+    hor_max = max([ds[hor_dim].max().item() for ds in datasets])
+
+    # Find the smallest step size across all datasets
+    ver_steps = []
+    hor_steps = []
+    for ds in datasets:
+        if len(ds[ver_dim]) > 1:
+            diffs = np.diff(np.sort(ds[ver_dim].values))
+            min_diff = np.min(diffs[diffs > 0]) if np.any(diffs > 0) else None
+            if min_diff is not None:
+                ver_steps.append(min_diff)
+
+        if len(ds[hor_dim]) > 1:
+            diffs = np.diff(np.sort(ds[hor_dim].values))
+            min_diff = np.min(diffs[diffs > 0]) if np.any(diffs > 0) else None
+            if min_diff is not None:
+                hor_steps.append(min_diff)
+
+    # Get smallest step size for each dimension
+    ver_step = min(ver_steps) if ver_steps else 1.0
+    hor_step = min(hor_steps) if hor_steps else 1.0
+
+    # Create regular grid from min to max with the step size
+    all_ver = np.arange(ver_min, ver_max + ver_step*0.5, ver_step)
+    all_hor = np.arange(hor_min, hor_max + hor_step*0.5, hor_step)
+
+    # Reindex each dataset on the complete grid with nearest neighbor interpolation to avoid NaNs
+    reindexed_datasets = []
+    for ds in datasets:
+        # Add an additional step to each end of the coordinates
+        ver_ds_vals = ds[ver_dim].values
+        hor_ds_vals = ds[hor_dim].values
+        ver_ds_step = abs(ver_ds_vals[1] - ver_ds_vals[0]) if len(ver_ds_vals) > 1 else 1.0
+        hor_ds_step = abs(hor_ds_vals[1] - hor_ds_vals[0]) if len(hor_ds_vals) > 1 else 1.0
+
+        # Create extended coordinates
+        extended_ver = np.concatenate([[ver_ds_vals.min() - ver_ds_step], ver_ds_vals, [ver_ds_vals.max() + ver_ds_step]])
+        extended_hor = np.concatenate([[hor_ds_vals.min() - hor_ds_step], hor_ds_vals, [hor_ds_vals.max() + hor_ds_step]])
+
+        # Extend the dataset with NaNs at the edges
+        extended_ds = ds.reindex({ver_dim: extended_ver, hor_dim: extended_hor})
+
+        # Reindex the extended dataset to the common grid
+        reindexed_ds = extended_ds.reindex({ver_dim: all_ver, hor_dim: all_hor}, method='nearest')
+        reindexed_datasets.append(reindexed_ds)
+
+    return xr.merge(reindexed_datasets, join="outer", combine_attrs='override')
+
+def _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_steps,
+                       time_dim, ver_dim, hor_dim, nc_var, var, dims_mapping, chunk_shape):
+    """Process a single time chunk and write to Zarr."""
+    chunk_start = chunk_idx * time_chunk_size
+    chunk_end = min((chunk_idx + 1) * time_chunk_size, time_steps) - 1
+    time_slice = slice(chunk_start, chunk_end + 1)
+
+    print(f"* Processing time chunk {chunk_idx+1}/{math.ceil(time_steps/time_chunk_size)} (indices {chunk_start}:{chunk_end})...")
+
+    nc_datasets_sliced = []
+    for nc_ds in nc_datasets:
+        ds = nc_ds.isel({time_dim: time_slice})
+        nc_datasets_sliced.append(ds)
+
+    if len(nc_datasets_sliced) > 1:
+        ds = _combine_netcdf_portions(nc_datasets_sliced, ver_dim, hor_dim)
+    else:
+        ds = nc_datasets_sliced[0]
+
+    # Clean problematic time attributes
+    if time_dim in ds.coords:
+        ds[time_dim].attrs.pop('units', None)
+        ds[time_dim].attrs.pop('calendar', None)
+
+    # Rename variable if needed
+    if nc_var != var:
+        ds = ds.rename_vars({nc_var: var})
+
+    zarr_kwargs = {
+        'store': store,
+        'group': var,
+        'mode': 'w' if chunk_idx == 0 else 'a',
+        'write_empty_chunks': False
+    }
+
+    if chunk_idx > 0:
+        zarr_kwargs['append_dim'] = T_DIM
+
+    ds.chunk({time_dim: chunk_shape[0], ver_dim: chunk_shape[1], hor_dim: chunk_shape[2]}) \
+        .rename(dims_mapping) \
+        .to_zarr(**zarr_kwargs)
+
+def _process_append_mode(store, nc_info):
+    """Process NetCDF in append mode, updating or adding time slices."""
+    nc_portions_path = nc_info['path']
+    nc_var = nc_info['nc_var']
+    var = nc_info['var']
+    time_dim = nc_info.get('time_dim', 'time')
+    ver_dim = nc_info.get('ver_dim', 'lat')
+    hor_dim = nc_info.get('hor_dim', 'lon')
+
+    # Open all NetCDF portions
+    nc_datasets = []
+    for nc_path in nc_portions_path:
+        ds = _my_open_dataset(nc_path, ver_dim, hor_dim, decode_times=False)
+        nc_datasets.append(ds)
+
+    # Get time coordinates from first dataset (assuming all have same temporal coords)
+    time_coords = nc_datasets[0][time_dim].values
+    time_steps = len(time_coords)
+
+    # Get existing time coordinates from zarr
+    zarr_ds = xr.open_zarr(store, group=var, decode_times=False)
+    existing_times = zarr_ds[T_DIM].values
+    print(f"Processing {time_steps} dates:")
+
+    # Process each date
+    for i, time_val in enumerate(time_coords):
+        print(f"* Processing date: {i}: {time_val}")
+
+        # Extract this time slice from all datasets and sort dimensions
+        nc_datasets_sliced = []
+        for nc_ds in nc_datasets:
+            ds = nc_ds.isel({time_dim: i})
+            nc_datasets_sliced.append(ds)
+
+        # Combine portions if more than one
+        if len(nc_datasets_sliced) > 1:
+            combined_ds = _combine_netcdf_portions(nc_datasets_sliced, ver_dim, hor_dim)
+            time_slice = combined_ds[nc_var]
+        else:
+            time_slice = nc_datasets_sliced[0][nc_var]
+
+        if time_val in existing_times:
+            _update_existing_time(store, var, time_val, time_slice, existing_times)
+        else:
+            _add_new_time(store, var, time_val, time_slice, zarr_ds)
+
+    # Close datasets
+    for nc_ds in nc_datasets:
+        nc_ds.close()
+
+def _update_existing_time(store, var, time_val, time_slice, existing_times):
+    """Update an existing time slice in the Zarr store."""
+    print(f"  Date {time_val} already exists in Zarr, updating...")
+    existing_index = list(existing_times).index(time_val)
+    var_array = zarr.open_group(store)[var][var]
+    var_array[existing_index, :, :] = time_slice.values
+
+def _add_new_time(store, var, time_val, time_slice, zarr_ds):
+    """Add a new time slice to the Zarr store using low-level Zarr API."""
+    print(f"  Date {time_val} not exists in Zarr, adding...")
+
+    # Access Zarr arrays directly
+    z_group = zarr.open_group(store=store, mode='a')
+    var_group = z_group[var]
+    var_array = var_group[var]
+    time_array = var_group[T_DIM]
+
+    # Get current position for appending
+    current_length = time_array.shape[0]
+
+    # Resize arrays to include the new timestep
+    new_shape = list(var_array.shape)
+    new_shape[0] = current_length + 1
+    var_array.resize(new_shape)
+    time_array.resize(current_length + 1)
+
+    # Add the new data
+    var_array[current_length, :, :] = time_slice.values
+    time_array[current_length] = time_val
+
+    print(f"  Added new date at index {current_length}")
+
+def _consolidate_time_and_restore_attrs(store, var, time_attrs_original=None, var_attrs_original=None):
+    """
+    Consolidate the time dimension of a Zarr dataset into a single chunk and restore original attributes.
+    """
+    # After processing all chunks
+    print("Consolidating time dimension and restore original attributes...")
+
+    # Get direct access to the Zarr array
+    z_group = zarr.open_group(store=store, mode='a')
+    var_group = z_group[var]
+
+    # Reconfigure only the chunking of the time coordinates array
+    if T_DIM in var_group:
+        # Save original data
+        time_data = var_group[T_DIM][:]
+        time_attrs = dict(var_group[T_DIM].attrs)
+
+        # Preserve original attributes if they exist
+        if time_attrs_original:
+            # Merge current attributes with original ones, prioritizing original attributes
+            for key, value in time_attrs_original.items():
+                time_attrs[key] = value
+
+        # Delete the original array
+        del var_group[T_DIM]
+
+        # Get original fill_value or use NaN
+        original_fill_value = None  # Default value
+        if '_FillValue' in time_attrs:
+            original_fill_value = time_attrs['_FillValue']
+        elif 'missing_value' in time_attrs:
+            original_fill_value = time_attrs['missing_value']
+
+        # Recreate the array with a single chunk
+        var_group.create_dataset(
+            T_DIM,
+            data=time_data,
+            chunks=(len(time_data),),  # A single chunk for the entire dimension
+            dtype=time_data.dtype,
+            fill_value=original_fill_value
+        )
+
+        # Restore attributes
+        for key, value in time_attrs.items():
+            var_group[T_DIM].attrs[key] = value
+
+    # Restore original variable attributes if they exist
+    if var_attrs_original and var in var_group:
+        var_array = var_group[var]
+
+        # Update with original attributes
+        for key, value in var_attrs_original.items():
+            var_array.attrs[key] = value

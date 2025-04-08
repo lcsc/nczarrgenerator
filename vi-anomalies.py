@@ -10,4 +10,6 @@ netcdfs = [
     {'path': ['nc/vi-anomalies/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'SNDVI', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
 ]
 zarr_path = 'nc/vi-anomalies.zarr'
-ncs2zarr(netcdfs, zarr_path)
+ncs2zarr(netcdfs, zarr_path, beginning=True)
+
+# 683s sin max/min; nczarrgenerator
