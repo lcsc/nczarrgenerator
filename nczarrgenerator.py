@@ -70,7 +70,9 @@ def ncs2zarr(nc_paths, zarr_path, beginning=True):
             time_attrs_original = {}  # In append mode, we don't modify time attributes
             var_attrs_original = {}   # In append mode, we don't modify variable attributes
 
-        _consolidate_time_and_restore_attrs(store, var, time_attrs_original, var_attrs_original)
+        z_group = zarr.open_group(store=store, mode='a')
+        _consolidate_time(z_group, var, time_attrs_original)
+        _restore_variable_attrs(z_group, var, var_attrs_original)
         print(f"Total processing time for {var}: {(time.time() - var_start_time):.2f} seconds")
 
     # Consolidate Zarr metadata (to avoid errors when calling xr.open_zarr())
@@ -324,15 +326,22 @@ def _add_new_time(store, var, time_val, time_slice, zarr_ds):
 
     print(f"  Added new date at index {current_length}")
 
-def _consolidate_time_and_restore_attrs(store, var, time_attrs_original=None, var_attrs_original=None):
-    """
-    Consolidate the time dimension of a Zarr dataset into a single chunk and restore original attributes.
-    """
-    # After processing all chunks
-    print("Consolidating time dimension and restore original attributes...")
+def _restore_variable_attrs(z_group, var, var_attrs_original=None):
+    if not var_attrs_original:
+        return
 
-    # Get direct access to the Zarr array
-    z_group = zarr.open_group(store=store, mode='a')
+    if var in z_group:
+        var_group = z_group[var]
+        if var in var_group:
+            var_array = var_group[var]
+            # Update with original attributes
+            for key, value in var_attrs_original.items():
+                var_array.attrs[key] = value
+
+def _consolidate_time(z_group, var, time_attrs_original=None):
+    # After processing all chunks
+    print("Consolidating time dimension and restoring attributes...")
+
     var_group = z_group[var]
 
     # Reconfigure only the chunking of the time coordinates array
@@ -369,11 +378,3 @@ def _consolidate_time_and_restore_attrs(store, var, time_attrs_original=None, va
         # Restore attributes
         for key, value in time_attrs.items():
             var_group[T_DIM].attrs[key] = value
-
-    # Restore original variable attributes if they exist
-    if var_attrs_original and var in var_group:
-        var_array = var_group[var]
-
-        # Update with original attributes
-        for key, value in var_attrs_original.items():
-            var_array.attrs[key] = value
