@@ -47,6 +47,7 @@ import os
 import math
 import numpy as np
 import time
+import pyproj
 
 # Constants for dimensions names to be used in the Zarr store
 X_DIM = 'x'
@@ -76,8 +77,12 @@ def ncs2zarr(nc_paths, zarr_path, beginning=True):
         _add_var_attributes(var_group, nc_info)
         print(f"Total processing time for {var}: {(time.time() - var_start_time):.2f} seconds")
 
+    z_group = zarr.open_group(store=store, mode='a')
     # Add root attributes
-    _add_root_attributes(store, nc_paths)
+    _update_root_attributes(z_group, nc_paths)
+    # Update geographical attributes
+    if beginning:
+        _add_root_attributes(z_group, nc_paths)
 
     # Consolidate Zarr metadata (to avoid errors when calling xr.open_zarr())
     zarr.consolidate_metadata(store)
@@ -378,7 +383,6 @@ def _consolidate_time(var_group, var, time_attrs_original=None):
 
 def _add_var_attributes(var_group, nc_info):
     nc_portions_path = nc_info['path']
-    var = nc_info['var']
     nc_var = nc_info['nc_var']
     nc_projection = nc_info.get('nc_projection', 'EPSG:4326')
 
@@ -397,13 +401,100 @@ def _add_var_attributes(var_group, nc_info):
     # Close the dataset
     first_ds.close()
 
-def _add_root_attributes(store, nc_paths):
-    # Open root group
-    z_group = zarr.open_group(store=store, mode='a')
-
+def _update_root_attributes(z_group, nc_paths):
     # Add list of variables
     z_group.attrs['variables'] = [nc_info['var'] for nc_info in nc_paths]
 
     # Additional global attributes could be added here
     z_group.attrs['creation_date'] = time.strftime("%Y-%m-%d %H:%M:%S")
     z_group.attrs['version'] = '1.0'
+
+def _calculate_zoom_level(lat_min, lat_max, lon_min, lon_max):
+    # Calculate distances
+    lat_distance = abs(lat_max - lat_min)
+    lon_distance = abs(lon_max - lon_min)
+
+    # Calculate zoom level based on the larger dimension
+    # This formula approximates the zoom level needed to fit the extent in a view
+    zoom_lat = math.log(360 / lat_distance) / math.log(2)
+    zoom_lon = math.log(360 / lon_distance) / math.log(2)
+
+    # Use the smaller zoom level to ensure entire area is visible
+    zoom = min(zoom_lat, zoom_lon)
+
+    # Round down to integer and apply some constraints
+    zoom = max(1, min(20, math.floor(zoom)))
+
+    return zoom
+
+def _add_root_attributes(z_group, nc_paths):
+    # Initialize variables for global extent
+    lat_min_global = np.inf
+    lat_max_global = -np.inf
+    lon_min_global = np.inf
+    lon_max_global = -np.inf
+
+    # Process files that should be included in center calculation
+    include_files = [info for info in nc_paths if info.get('include_center_calc', False)]
+
+    if include_files:
+        for info in include_files:
+            # Get variable and dimension info
+            var = info['var']
+
+            # Open the Zarr dataset to use the already combined data
+            try:
+                lat_vals = z_group[var][Y_DIM][:]
+                lon_vals = z_group[var][X_DIM][:]
+
+                lat_min = np.min(lat_vals)
+                lat_max = np.max(lat_vals)
+                lon_min = np.min(lon_vals)
+                lon_max = np.max(lon_vals)
+
+                # Get projection from the group attributes
+                projection = z_group[var].attrs.get('projection', 'EPSG:4326')
+
+                # Convert to EPSG:4326 if needed
+                if projection != 'EPSG:4326':
+                    # Create coordinate transformer
+                    crs = pyproj.CRS.from_string(projection)
+                    transformer = pyproj.Transformer.from_crs(crs, 'EPSG:4326', always_xy=True)
+
+                    # Transform corners
+                    lon1, lat1 = transformer.transform(lon_min, lat_min)
+                    lon2, lat2 = transformer.transform(lon_max, lat_min)
+                    lon3, lat3 = transformer.transform(lon_min, lat_max)
+                    lon4, lat4 = transformer.transform(lon_max, lat_max)
+
+                    # Update min/max values
+                    lat_min = min(lat1, lat2, lat3, lat4)
+                    lat_max = max(lat1, lat2, lat3, lat4)
+                    lon_min = min(lon1, lon2, lon3, lon4)
+                    lon_max = max(lon1, lon2, lon3, lon4)
+
+                # Update global extents
+                lat_min_global = min(lat_min_global, lat_min)
+                lat_max_global = max(lat_max_global, lat_max)
+                lon_min_global = min(lon_min_global, lon_min)
+                lon_max_global = max(lon_max_global, lon_max)
+
+            except Exception as e:
+                print(f"* Warning: Could not include {var} in geographic extent calculation: {e}")
+
+        # Calculate center coordinates
+        center_lat = (lat_min_global + lat_max_global) / 2
+        center_lon = (lon_min_global + lon_max_global) / 2
+
+        # Calculate appropriate zoom level
+        zoom_level = _calculate_zoom_level(lat_min_global, lat_max_global, lon_min_global, lon_max_global)
+
+        # Add to root group attributes
+        z_group.attrs['center_lat'] = center_lat
+        z_group.attrs['center_lon'] = center_lon
+        z_group.attrs['zoom'] = zoom_level
+    else:
+        # If no files are included, set default values
+        z_group.attrs['center_lat'] = 0.0
+        z_group.attrs['center_lon'] = 0.0
+        z_group.attrs['zoom'] = 1
