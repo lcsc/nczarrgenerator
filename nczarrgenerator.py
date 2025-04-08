@@ -56,7 +56,6 @@ T_DIM = 'time'
 def ncs2zarr(nc_paths, zarr_path, beginning=True):
     total_start_time = time.time()
     store = _initialize_zarr_store(zarr_path, beginning)
-    z_group = zarr.open_group(store=store, mode='a')
 
     for nc_info in nc_paths:
         var_start_time = time.time()
@@ -70,14 +69,15 @@ def ncs2zarr(nc_paths, zarr_path, beginning=True):
             time_attrs_original = {}  # In append mode, we don't modify time attributes
             var_attrs_original = {}   # In append mode, we don't modify variable attributes
 
-        print("Consolidating time dimension and restoring attributes...")
+        print("Consolidating time dimension and restoring/adding attributes...")
         var_group = zarr.open_group(store=store, mode='a', path=var)
         _consolidate_time(var_group, var, time_attrs_original)
         _restore_variable_attrs(var_group, var, var_attrs_original)
+        _add_var_attributes(var_group, nc_info)
         print(f"Total processing time for {var}: {(time.time() - var_start_time):.2f} seconds")
 
-    # Add global attributes
-    z_group.attrs['variables'] = [nc_info['var'] for nc_info in nc_paths]
+    # Add root attributes
+    _add_root_attributes(store, nc_paths)
 
     # Consolidate Zarr metadata (to avoid errors when calling xr.open_zarr())
     zarr.consolidate_metadata(store)
@@ -375,3 +375,35 @@ def _consolidate_time(var_group, var, time_attrs_original=None):
         # Restore attributes
         for key, value in time_attrs.items():
             var_group[T_DIM].attrs[key] = value
+
+def _add_var_attributes(var_group, nc_info):
+    nc_portions_path = nc_info['path']
+    var = nc_info['var']
+    nc_var = nc_info['nc_var']
+    nc_projection = nc_info.get('nc_projection', 'EPSG:4326')
+
+    # Open the first NetCDF portion to get metadata
+    first_ds = xr.open_dataset(nc_portions_path[0], decode_times=False)
+
+    # Get metadata
+    varTitle = first_ds[nc_var].attrs.get('long_name', nc_var)
+    legendTitle = first_ds[nc_var].attrs.get('short_name', nc_var)
+
+    # Add attributes to the group
+    var_group.attrs['varTitle'] = varTitle
+    var_group.attrs['legendTitle'] = legendTitle
+    var_group.attrs['projection'] = nc_projection
+
+    # Close the dataset
+    first_ds.close()
+
+def _add_root_attributes(store, nc_paths):
+    # Open root group
+    z_group = zarr.open_group(store=store, mode='a')
+
+    # Add list of variables
+    z_group.attrs['variables'] = [nc_info['var'] for nc_info in nc_paths]
+
+    # Additional global attributes could be added here
+    z_group.attrs['creation_date'] = time.strftime("%Y-%m-%d %H:%M:%S")
+    z_group.attrs['version'] = '1.0'
