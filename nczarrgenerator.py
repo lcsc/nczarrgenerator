@@ -32,8 +32,8 @@ Notes
 Example
 -------
 netcdfs = [
-    {'path': ['/path/to/kndvi.nc'], 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
-    {'path': ['/path/to/ndvi.nc'], 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': True, 'chunk_shape': (17, 52, 92)},
+    {'path': ['/path/to/kndvi.nc'], 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': True, 'chunk_shape': (17, 52, 92)},
+    {'path': ['/path/to/ndvi.nc'], 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
     {'path': ['/path/to/skndvi.nc'], 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
     {'path': ['/path/to/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
 ]
@@ -54,9 +54,9 @@ Y_DIM = 'y'
 T_DIM = 'time'
 
 def ncs2zarr(nc_paths, zarr_path, beginning=True):
-    """Convert NetCDF files to Zarr store with proper organization."""
     total_start_time = time.time()
     store = _initialize_zarr_store(zarr_path, beginning)
+    z_group = zarr.open_group(store=store, mode='a')
 
     for nc_info in nc_paths:
         var_start_time = time.time()
@@ -70,10 +70,14 @@ def ncs2zarr(nc_paths, zarr_path, beginning=True):
             time_attrs_original = {}  # In append mode, we don't modify time attributes
             var_attrs_original = {}   # In append mode, we don't modify variable attributes
 
-        z_group = zarr.open_group(store=store, mode='a')
-        _consolidate_time(z_group, var, time_attrs_original)
-        _restore_variable_attrs(z_group, var, var_attrs_original)
+        print("Consolidating time dimension and restoring attributes...")
+        var_group = zarr.open_group(store=store, mode='a', path=var)
+        _consolidate_time(var_group, var, time_attrs_original)
+        _restore_variable_attrs(var_group, var, var_attrs_original)
         print(f"Total processing time for {var}: {(time.time() - var_start_time):.2f} seconds")
+
+    # Add global attributes
+    z_group.attrs['variables'] = [nc_info['var'] for nc_info in nc_paths]
 
     # Consolidate Zarr metadata (to avoid errors when calling xr.open_zarr())
     zarr.consolidate_metadata(store)
@@ -326,24 +330,17 @@ def _add_new_time(store, var, time_val, time_slice, zarr_ds):
 
     print(f"  Added new date at index {current_length}")
 
-def _restore_variable_attrs(z_group, var, var_attrs_original=None):
+def _restore_variable_attrs(var_group, var, var_attrs_original=None):
     if not var_attrs_original:
         return
 
-    if var in z_group:
-        var_group = z_group[var]
-        if var in var_group:
-            var_array = var_group[var]
-            # Update with original attributes
-            for key, value in var_attrs_original.items():
-                var_array.attrs[key] = value
+    if var in var_group:
+        var_array = var_group[var]
+        # Update with original attributes
+        for key, value in var_attrs_original.items():
+            var_array.attrs[key] = value
 
-def _consolidate_time(z_group, var, time_attrs_original=None):
-    # After processing all chunks
-    print("Consolidating time dimension and restoring attributes...")
-
-    var_group = z_group[var]
-
+def _consolidate_time(var_group, var, time_attrs_original=None):
     # Reconfigure only the chunking of the time coordinates array
     if T_DIM in var_group:
         # Save original data
