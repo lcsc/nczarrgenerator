@@ -346,23 +346,22 @@ def _update_existing_time(store, var, time_val, time_slice, existing_times):
     print(f"  Date {time_val} already exists in Zarr, updating...")
     existing_index = list(existing_times).index(time_val)
 
-    # Abrir el grupo zarr
     var_group = zarr.open_group(store)[var]
 
-    # Actualizar la variable principal
+    # Update the main variable
     var_array = var_group[var]
     var_array[existing_index, :, :] = time_slice.values
 
-    # Calcular y actualizar min/max si existen
     min_var_name = f"{var}_min"
     max_var_name = f"{var}_max"
 
+    # Calculate and update min/max if they exist
     if min_var_name in var_group and max_var_name in var_group:
-        # Calcular los nuevos valores mínimo y máximo
+        # Calculate the new minimum and maximum values
         min_val = float(np.nanmin(time_slice.values))
         max_val = float(np.nanmax(time_slice.values))
 
-        # Actualizar los arrays de min/max
+        # Update the min/max arrays
         min_array = var_group[min_var_name]
         max_array = var_group[max_var_name]
 
@@ -391,24 +390,24 @@ def _add_new_time(store, var, time_val, time_slice, zarr_ds):
     var_array[current_length, :, :] = time_slice.values
     time_array[current_length] = time_val
 
-    # Procesar los arrays de mínimos y máximos si existen
     min_var_name = f"{var}_min"
     max_var_name = f"{var}_max"
 
+    # Process the min/max arrays if they exist
     if min_var_name in var_group and max_var_name in var_group:
-        # Calcular los nuevos valores mínimo y máximo
+        # Calculate the new minimum and maximum values
         min_val = float(np.nanmin(time_slice.values))
         max_val = float(np.nanmax(time_slice.values))
 
-        # Obtener los arrays de min/max
+        # Get the min/max arrays
         min_array = var_group[min_var_name]
         max_array = var_group[max_var_name]
 
-        # Redimensionar los arrays para incluir el nuevo paso de tiempo
+        # Resize the arrays to include the new timestep
         min_array.resize(current_length + 1)
         max_array.resize(current_length + 1)
 
-        # Añadir los nuevos valores
+        # Add the new values
         min_array[current_length] = min_val
         max_array[current_length] = max_val
 
