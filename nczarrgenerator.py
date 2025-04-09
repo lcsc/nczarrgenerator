@@ -154,7 +154,7 @@ def _process_beginning_mode(store, nc_info):
     # Process each temporal chunk
     for chunk_idx in range(num_chunks):
         _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_steps,
-                            time_dim, ver_dim, hor_dim, nc_var, var, dims_mapping, chunk_shape)
+                            time_dim, ver_dim, hor_dim, nc_var, var, dims_mapping, chunk_shape, nc_info)
 
     return time_attrs_original, var_attrs_original
 
@@ -212,7 +212,7 @@ def _combine_netcdf_portions(datasets, ver_dim, hor_dim):
     return xr.merge(reindexed_datasets, join="outer", combine_attrs='override')
 
 def _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_steps,
-                       time_dim, ver_dim, hor_dim, nc_var, var, dims_mapping, chunk_shape):
+                       time_dim, ver_dim, hor_dim, nc_var, var, dims_mapping, chunk_shape, nc_info):
     """Process a single time chunk and write to Zarr."""
     chunk_start = chunk_idx * time_chunk_size
     chunk_end = min((chunk_idx + 1) * time_chunk_size, time_steps) - 1
@@ -238,6 +238,44 @@ def _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_ste
     # Rename variable if needed
     if nc_var != var:
         ds = ds.rename_vars({nc_var: var})
+
+    # Calculate min and max values per time step if requested
+    calc_min_max = nc_info.get('calc_min_max', True)
+    if calc_min_max:
+        min_var_name = f"{var}_min"
+        max_var_name = f"{var}_max"
+
+        # Calculate min/max for each time step
+        time_values = ds[time_dim].values
+        min_values = []
+        max_values = []
+
+        for i, _ in enumerate(time_values):
+            time_slice_data = ds[var].isel({time_dim: i})
+            # Ignore NaN values in min/max calculation
+            min_val = float(np.nanmin(time_slice_data))
+            max_val = float(np.nanmax(time_slice_data))
+            min_values.append(min_val)
+            max_values.append(max_val)
+
+        # Create DataArrays for min and max values
+        min_da = xr.DataArray(
+            data=np.array(min_values),
+            dims=[time_dim],
+            coords={time_dim: time_values},
+            name=min_var_name
+        )
+
+        max_da = xr.DataArray(
+            data=np.array(max_values),
+            dims=[time_dim],
+            coords={time_dim: time_values},
+            name=max_var_name
+        )
+
+        # Add min/max arrays to dataset
+        ds[min_var_name] = min_da
+        ds[max_var_name] = max_da
 
     zarr_kwargs = {
         'store': store,
@@ -307,11 +345,31 @@ def _update_existing_time(store, var, time_val, time_slice, existing_times):
     """Update an existing time slice in the Zarr store."""
     print(f"  Date {time_val} already exists in Zarr, updating...")
     existing_index = list(existing_times).index(time_val)
-    var_array = zarr.open_group(store)[var][var]
+
+    # Abrir el grupo zarr
+    var_group = zarr.open_group(store)[var]
+
+    # Actualizar la variable principal
+    var_array = var_group[var]
     var_array[existing_index, :, :] = time_slice.values
 
+    # Calcular y actualizar min/max si existen
+    min_var_name = f"{var}_min"
+    max_var_name = f"{var}_max"
+
+    if min_var_name in var_group and max_var_name in var_group:
+        # Calcular los nuevos valores mínimo y máximo
+        min_val = float(np.nanmin(time_slice.values))
+        max_val = float(np.nanmax(time_slice.values))
+
+        # Actualizar los arrays de min/max
+        min_array = var_group[min_var_name]
+        max_array = var_group[max_var_name]
+
+        min_array[existing_index] = min_val
+        max_array[existing_index] = max_val
+
 def _add_new_time(store, var, time_val, time_slice, zarr_ds):
-    """Add a new time slice to the Zarr store using low-level Zarr API."""
     print(f"  Date {time_val} not exists in Zarr, adding...")
 
     # Access Zarr arrays directly
@@ -333,7 +391,26 @@ def _add_new_time(store, var, time_val, time_slice, zarr_ds):
     var_array[current_length, :, :] = time_slice.values
     time_array[current_length] = time_val
 
-    print(f"  Added new date at index {current_length}")
+    # Procesar los arrays de mínimos y máximos si existen
+    min_var_name = f"{var}_min"
+    max_var_name = f"{var}_max"
+
+    if min_var_name in var_group and max_var_name in var_group:
+        # Calcular los nuevos valores mínimo y máximo
+        min_val = float(np.nanmin(time_slice.values))
+        max_val = float(np.nanmax(time_slice.values))
+
+        # Obtener los arrays de min/max
+        min_array = var_group[min_var_name]
+        max_array = var_group[max_var_name]
+
+        # Redimensionar los arrays para incluir el nuevo paso de tiempo
+        min_array.resize(current_length + 1)
+        max_array.resize(current_length + 1)
+
+        # Añadir los nuevos valores
+        min_array[current_length] = min_val
+        max_array[current_length] = max_val
 
 def _restore_variable_attrs(var_group, var, var_attrs_original=None):
     if not var_attrs_original:
