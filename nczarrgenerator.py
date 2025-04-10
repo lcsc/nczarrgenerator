@@ -250,6 +250,10 @@ def _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_ste
         min_values = []
         max_values = []
 
+        # Variables to track global min/max across all time steps
+        global_min_val = float('inf')
+        global_max_val = float('-inf')
+
         for i, _ in enumerate(time_values):
             time_slice_data = ds[var].isel({time_dim: i})
             # Ignore NaN values in min/max calculation
@@ -257,6 +261,10 @@ def _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_ste
             max_val = float(np.nanmax(time_slice_data))
             min_values.append(min_val)
             max_values.append(max_val)
+
+            # Update global min/max
+            global_min_val = min(global_min_val, min_val)
+            global_max_val = max(global_max_val, max_val)
 
         # Create DataArrays for min and max values
         min_da = xr.DataArray(
@@ -291,8 +299,23 @@ def _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_ste
         .rename(dims_mapping) \
         .to_zarr(**zarr_kwargs)
 
+    # For the first chunk, add the global min/max attributes after writing to zarr
+    if calc_min_max:
+        var_group = zarr.open_group(store=store, mode='a', path=var)
+        current_min_val = var_group.attrs.get('minVal', None)
+        current_max_val = var_group.attrs.get('maxVal', None)
+
+        if current_min_val is None or current_max_val is None:
+            var_group.attrs['minVal'] = global_min_val
+            var_group.attrs['maxVal'] = global_max_val
+        else:
+            new_min_val = min(current_min_val, global_min_val)
+            new_max_val = max(current_max_val, global_max_val)
+            if new_min_val != current_min_val or new_max_val != current_max_val:
+                var_group.attrs['minVal'] = new_min_val
+                var_group.attrs['maxVal'] = new_max_val
+
 def _process_append_mode(store, nc_info):
-    """Process NetCDF in append mode, updating or adding time slices."""
     nc_portions_path = nc_info['path']
     nc_var = nc_info['nc_var']
     var = nc_info['var']
@@ -335,27 +358,26 @@ def _process_append_mode(store, nc_info):
         if time_val in existing_times:
             _update_existing_time(store, var, time_val, time_slice, existing_times)
         else:
-            _add_new_time(store, var, time_val, time_slice, zarr_ds)
+            _add_new_time(store, var, time_val, time_slice)
 
     # Close datasets
     for nc_ds in nc_datasets:
         nc_ds.close()
 
 def _update_existing_time(store, var, time_val, time_slice, existing_times):
-    """Update an existing time slice in the Zarr store."""
     print(f"  Date {time_val} already exists in Zarr, updating...")
     existing_index = list(existing_times).index(time_val)
 
-    var_group = zarr.open_group(store)[var]
+    var_group = zarr.open_group(store=store, mode='a', path=var)
+    var_array = var_group[var]
 
     # Update the main variable
-    var_array = var_group[var]
     var_array[existing_index, :, :] = time_slice.values
 
+    # Calculate and update min/max if they exist
     min_var_name = f"{var}_min"
     max_var_name = f"{var}_max"
 
-    # Calculate and update min/max if they exist
     if min_var_name in var_group and max_var_name in var_group:
         # Calculate the new minimum and maximum values
         min_val = float(np.nanmin(time_slice.values))
@@ -368,12 +390,20 @@ def _update_existing_time(store, var, time_val, time_slice, existing_times):
         min_array[existing_index] = min_val
         max_array[existing_index] = max_val
 
-def _add_new_time(store, var, time_val, time_slice, zarr_ds):
+        # Update minVal and maxVal attributes if necessary
+        current_min_val = var_group.attrs.get('minVal', min_val)
+        current_max_val = var_group.attrs.get('maxVal', max_val)
+
+        if min_val < current_min_val:
+            var_group.attrs['minVal'] = min_val
+
+        if max_val > current_max_val:
+            var_group.attrs['maxVal'] = max_val
+
+def _add_new_time(store, var, time_val, time_slice):
     print(f"  Date {time_val} not exists in Zarr, adding...")
 
-    # Access Zarr arrays directly
-    z_group = zarr.open_group(store=store, mode='a')
-    var_group = z_group[var]
+    var_group = zarr.open_group(store=store, mode='a', path=var)
     var_array = var_group[var]
     time_array = var_group[T_DIM]
 
@@ -384,32 +414,44 @@ def _add_new_time(store, var, time_val, time_slice, zarr_ds):
     new_shape = list(var_array.shape)
     new_shape[0] = current_length + 1
     var_array.resize(new_shape)
-    time_array.resize(current_length + 1)
+    time_array.resize(new_shape[0])
 
     # Add the new data
     var_array[current_length, :, :] = time_slice.values
     time_array[current_length] = time_val
 
+    # Calculate and update min/max if they exist
     min_var_name = f"{var}_min"
     max_var_name = f"{var}_max"
 
-    # Process the min/max arrays if they exist
     if min_var_name in var_group and max_var_name in var_group:
-        # Calculate the new minimum and maximum values
+        # Calculate the new min/max values
         min_val = float(np.nanmin(time_slice.values))
         max_val = float(np.nanmax(time_slice.values))
 
-        # Get the min/max arrays
+        # Get min/max arrays
         min_array = var_group[min_var_name]
         max_array = var_group[max_var_name]
 
-        # Resize the arrays to include the new timestep
+        # Resize arrays to include the new timestep
         min_array.resize(current_length + 1)
         max_array.resize(current_length + 1)
 
         # Add the new values
         min_array[current_length] = min_val
         max_array[current_length] = max_val
+
+        # Update minVal and maxVal attributes with absolute min and max
+        # First get current global min/max from attributes
+        current_min_val = var_group.attrs.get('minVal', min_val)
+        current_max_val = var_group.attrs.get('maxVal', max_val)
+
+        # Update if new values are more extreme
+        if min_val < current_min_val:
+            var_group.attrs['minVal'] = min_val
+
+        if max_val > current_max_val:
+            var_group.attrs['maxVal'] = max_val
 
 def _restore_variable_attrs(var_group, var, var_attrs_original=None):
     if not var_attrs_original:
