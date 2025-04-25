@@ -519,7 +519,26 @@ def _restore_variable_attrs(var_group, var_name, var_attrs_original=None):
         var_array = var_group[var_name]
         # Update with original attributes
         for key, value in var_attrs_original.items():
-            var_array.attrs[key] = value
+            try:
+                # Handle special cases of values not serializable to JSON
+                if key == 'valid_range' or key == 'valid_min' or key == 'valid_max':
+                    # If the attribute is a NumPy array, convert it to a Python list
+                    if isinstance(value, np.ndarray):
+                        value_list = value.tolist()
+                        # Replace infinities with strings that Zarr can handle
+                        if any(np.isinf(x) for x in value_list if isinstance(x, (int, float))):
+                            value_list = [str(x) if np.isinf(x) else x for x in value_list]
+                        value = value_list
+                    # If it's a scalar infinite value
+                    elif np.isinf(value):
+                        value = str(value)
+
+                # Assign the value, possibly transformed
+                var_array.attrs[key] = value
+            except Exception as e:
+                print(f"No se pudo restaurar el atributo '{key}' para {var_name}: {e}")
+                # Continue with the next attribute instead of failing
+                continue
 
 def _consolidate_time(var_group, var_name, time_attrs_original=None):
     """
