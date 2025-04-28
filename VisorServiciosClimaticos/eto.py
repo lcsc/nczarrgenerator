@@ -15,7 +15,8 @@ netcdfs = [
     {'path': ['nc/eto/ETo_var.nc'], 'nc_var': 'ETo', 'var': 'eto_var', 'time_dim': 'time', 'ver_dim': 'lat', 'hor_dim': 'lon', 'nc_projection': 'EPSG:25830', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (41, 105, 140)},
 ]
 zarr_path = 'nc/eto.zarr'
-ncs2zarr(netcdfs, zarr_path)
+ncs2zarr(netcdfs, zarr_path, beginning=True)
 
 # 16m54s con max/min; nczarrgenerator_all
-# 800s sin max/min; nczarrgenerator
+# 13m20s sin max/min; nczarrgenerator
+# 3h13m con max/min; nczarrgenerator
