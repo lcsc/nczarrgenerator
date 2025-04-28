@@ -142,6 +142,7 @@ netcdfs = [
     {'path': ['nc/sri/10d/10d_cumulative_p10_ssrd_pen.nc', 'nc/sri/10d/10d_cumulative_p10_ssrd_can.nc'], 'nc_var': 'ssrd', 'var': 'ssrd_10_p10', 'time_dim': 'time', 'ver_dim': 'lat', 'hor_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (12, 16, 28)},
 ]
 zarr_path = 'nc/sri.zarr'
-ncs2zarr(netcdfs, zarr_path)
+ncs2zarr(netcdfs, zarr_path, beginning=True)
 
-# 7m6s minutos con max/min
+# 7m6s con max/min; nczarrgenerator_all
+# 2m24s con max/min; nczarrgenerator

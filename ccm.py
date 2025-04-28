@@ -42,4 +42,6 @@ netcdfs = [
     {'path': ['nc/ccm/txx_year_grid_pen.nc', 'nc/ccm/txx_year_grid_can.nc'], 'nc_var': 'txx', 'var': 'txx_year', 'time_dim': 'time', 'ver_dim': 'lat', 'hor_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (12, 43, 69)},
 ]
 zarr_path = 'nc/ccm.zarr'
-ncs2zarr(netcdfs, zarr_path)
+ncs2zarr(netcdfs, zarr_path, beginning=True)
+
+# 7,12m con max/min; nczarrgenerator

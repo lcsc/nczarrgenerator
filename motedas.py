@@ -13,7 +13,8 @@ netcdfs = [
     {'path': ['nc/motedas/MOTEDAS_century-tx.nc'], 'nc_var': 'tx', 'var': 'tx', 'time_dim': 'time', 'ver_dim': 'lat', 'hor_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (20, 10, 16)},
 ]
 zarr_path = 'nc/motedas.zarr'
-ncs2zarr(netcdfs, zarr_path)
+ncs2zarr(netcdfs, zarr_path, beginning=True)
 
 # 7s con max/min; nczarrgenerator_all
 # 46s sin max/min; nczarrgenerator
+# 37s con max/min; nczarrgenerator

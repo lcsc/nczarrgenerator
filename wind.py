@@ -37,6 +37,7 @@ netcdfs = [
     {'path': ['nc/wind/percentiles/p10_wind_pen.nc', 'nc/wind/percentiles/p10_wind_can.nc'], 'nc_var': 'ws', 'var': 'vmed_q10', 'time_dim': 'time', 'ver_dim': 'lat', 'hor_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (12, 25, 25)},
 ]
 zarr_path = 'nc/wind.zarr'
-ncs2zarr(netcdfs, zarr_path)
+ncs2zarr(netcdfs, zarr_path, beginning=True)
 
-# 29s minutos con max/min
+# 29s con max/min; nczarrgenerator_all
+# 60s con max/min; nczarrgenerator

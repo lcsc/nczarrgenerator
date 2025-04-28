@@ -70,6 +70,7 @@ netcdfs = [
     {'path': ['nc/sams/ai_serie_men_pen.nc', 'nc/sams/ai_serie_men_can.nc'], 'nc_var': 'AI', 'var': 'ai_serie_men', 'time_dim': 'time', 'ver_dim': 'north', 'hor_dim': 'east', 'nc_projection': 'EPSG:25830', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (12, 126, 197)},
 ]
 zarr_path = 'nc/sams.zarr'
-ncs2zarr(netcdfs, zarr_path)
+ncs2zarr(netcdfs, zarr_path, beginning=True)
 
-# 48s minutos con max/min
+# 48s con max/min; nczarrgenerator_all
+# 79s con max/min; nczarrgenerator

@@ -12,4 +12,5 @@ netcdfs = [
 zarr_path = 'nc/vi-anomalies.zarr'
 ncs2zarr(netcdfs, zarr_path, beginning=True)
 
-# 683s sin max/min; nczarrgenerator
+# 11,38m sin max/min (seguramente porque desbordaba la memoria); nczarrgenerator_all
+# 12,27m con max/min; nczarrgenerator

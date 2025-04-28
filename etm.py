@@ -88,4 +88,4 @@ zarr_path = 'nc/etm.zarr'
 ncs2zarr(netcdfs, zarr_path, beginning=True)
 
 # 37 minutos con max/min; nczarrgenerator_all
-# 67.65 minutos sin max/min; nczarrgenerator
+# 114 minutos con max/min; nczarrgenerator

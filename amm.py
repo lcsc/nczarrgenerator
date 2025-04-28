@@ -22,7 +22,7 @@ netcdfs = [
     {'path': ['nc/amm/acum_calor/gdd_winter_cereal_pen.nc', 'nc/amm/acum_calor/gdd_winter_cereal_can.nc'], 'nc_var': 'gdd', 'var': 'gdd_winter_cereal', 'time_dim': 'time', 'ver_dim': 'lat', 'hor_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (31, 81, 113)},
 ]
 zarr_path = 'nc/amm.zarr'
-ncs2zarr(netcdfs, zarr_path)
+ncs2zarr(netcdfs, zarr_path, beginning=True)
 
 # 3s con max/min; nczarrgenerator_all
-# 6s sin max/min; nczarrgenerator
+# 10s con max/min; nczarrgenerator
