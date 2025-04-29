@@ -1,0 +1,1 @@
+from .nczarrgenerator import ncs2zarr

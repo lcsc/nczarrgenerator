@@ -34,7 +34,7 @@ netcdfs = [
     {'path': ['/path/to/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
 ]
 zarr_path = '/path/to/vi-anomalies.zarr'
-ncs2zarr(netcdfs, zarr_path)
+ncs2zarr_all(netcdfs, zarr_path)
 """
 
 import xarray as xr
@@ -49,7 +49,7 @@ X_DIM = 'x'
 Y_DIM = 'y'
 T_DIM = 'time'
 
-def ncs2zarr(nc_paths, zarr_path):
+def ncs2zarr_all(nc_paths, zarr_path):
     total_start_time = time.time()
 
     # Initialize variables for global extent
