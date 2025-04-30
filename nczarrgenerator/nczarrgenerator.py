@@ -35,14 +35,12 @@ Notes
 
 Example
 -------
-netcdfs = [
-    {'path': ['/path/to/kndvi.nc'], 'nc_var': 'KNDVI', 'var': 'kndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': True, 'chunk_shape': (17, 52, 92)},
-    {'path': ['/path/to/ndvi.nc'], 'nc_var': 'NDVI', 'var': 'ndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
-    {'path': ['/path/to/skndvi.nc'], 'nc_var': 'SKNDVI', 'var': 'skndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
-    {'path': ['/path/to/sndvi.nc'], 'nc_var': 'SNDVI', 'var': 'sndvi', 'time_dim': 'time', 'ver_dim': 'y', 'hor_dim': 'x', 'nc_projection': 'EPSG:23030', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (17, 52, 92)},
+nc_paths = [
+    {'path': ['/path/to/fwi12_ERA5-Land_pen.nc', '/path/to/fwi12_ERA5-Land_can.nc'], 'nc_var': 'fwi12', 'var': 'fwi12', 'time_dim': 'time', 'ver_dim': 'lat', 'hor_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True, 'include_center_calc': True, 'chunk_shape': (349, 16, 28)},
+    {'path': ['/path/to/percentiles/fwi12_pen.nc', '/path/to/percentiles/fwi12_can.nc'], 'nc_var': 'fwi12_percentiles', 'var': 'fwi12_p', 'time_dim': 'time', 'ver_dim': 'lat', 'hor_dim': 'lon', 'nc_projection': 'EPSG:4326', 'calc_min_max': True, 'include_center_calc': False, 'chunk_shape': (4, 16, 28)},
 ]
-zarr_path = '/path/to/vi-anomalies.zarr'
-ncs2zarr(netcdfs, zarr_path, beginning=True)
+zarr_path = '/path/to/fri.zarr'
+ncs2zarr(nc_paths, zarr_path, beginning=True)
 """
 
 import xarray as xr
