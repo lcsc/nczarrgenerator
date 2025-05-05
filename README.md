@@ -1,3 +1,51 @@
+## Build and deploy to Nexus
+
+To build and deploy the package to Nexus, you can follow these steps:
+1. Create a working directory:
+
+    ```bash
+    $ cd ~/git
+    ```
+
+2. Create and activate a virtual environment to install the module and its dependencies:
+
+    ```bash
+    $ python3 -m venv nczarrgenerator
+    $ source nczarrgenerator/bin/activate
+    ```
+
+3. Install the dependencies:
+
+    ```bash
+    (nczarrgenerator) $ pip install setuptools wheel twine
+    ```
+
+4. Download the repository:
+
+    ```bash
+    $ git clone git@github.com:lcsc/nczarrgenerator.git
+    ```
+
+5. Bump the version in `setup.py`:
+
+    ```python
+    version = '1.1.0'
+    ```
+
+6. Build the package:
+
+    ```bash
+    $ python setup.py sdist bdist_wheel
+    ```
+
+7. Deploy the package to Nexus:
+
+    ```bash
+    $ twine upload --repository-url https://mirror.lcsc.csic.es/repository/pypi-lcsc/ -u pypi -p passwd dist/*1.1.0*
+    ```
+
+8. If you want to deploy the package to Nexus with a different version, you can change the version in `setup.py` and repeat steps 5 and 6.
+
 ## Execution
 
 For example, to generate the SEDI zarr from the NetCDF file `SEDI.nc`, you can follow these steps:
@@ -20,7 +68,7 @@ For example, to generate the SEDI zarr from the NetCDF file `SEDI.nc`, you can f
 
     ```bash
     (sedi) $ pip install \
-        --index-url https://pypi:Preterito43@mirror.lcsc.csic.es/repository/pypi-lcsc/simple/ \
+        --index-url https://pypi:passwd@mirror.lcsc.csic.es/repository/pypi-lcsc/simple/ \
         --extra-index-url https://pypi.org/simple \
       nczarrgenerator
     ```
