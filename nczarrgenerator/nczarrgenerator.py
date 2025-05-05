@@ -21,6 +21,8 @@ beginning : bool, optional
     Whether to create a new Zarr store or update an existing one. Default is False.
     If True, a new Zarr store will be created. If False, the existing store will be updated.
     This parameter is ignored if the Zarr store does not exist.
+zarr_version : int, optional
+    Version of Zarr format to use (2 or 3). Default is 2.
 
 Returns
 -------
@@ -56,14 +58,14 @@ X_DIM = 'x'  # Horizontal dimension name in Zarr
 Y_DIM = 'y'  # Vertical dimension name in Zarr
 T_DIM = 'time'  # Time dimension name in Zarr
 
-def ncs2zarr(nc_paths, zarr_path, beginning=False):
+def ncs2zarr(nc_paths, zarr_path, beginning=False, zarr_version=2):
     """
     Main function to convert NetCDF files to a Zarr store.
 
     This function orchestrates the entire conversion process.
     """
     total_start_time = time.time()
-    store = _initialize_zarr_store(zarr_path, beginning)
+    _initialize_zarr_store(zarr_path, beginning, zarr_version)
 
     for nc_info in nc_paths:
         var_start_time = time.time()
@@ -71,21 +73,21 @@ def ncs2zarr(nc_paths, zarr_path, beginning=False):
         print(f"== Processing {var_name} ==")
 
         if beginning:
-            time_attrs_original, var_attrs_original = _process_beginning_mode(store, nc_info)
+            time_attrs_original, var_attrs_original = _process_beginning_mode(zarr_path, nc_info, zarr_version)
         else:
-            _process_append_mode(store, nc_info)
+            _process_append_mode(zarr_path, nc_info, zarr_version)
             time_attrs_original = {}  # In append mode, we don't modify time attributes
             var_attrs_original = {}   # In append mode, we don't modify variable attributes
 
         print("Consolidating time dimension and restoring/adding attributes...")
-        var_group = zarr.open_group(store=store, mode='a', path=var_name)
+        var_group = zarr.open_group(store=zarr_path, mode='a', path=var_name, zarr_version=zarr_version)
         _consolidate_time(var_group, var_name, time_attrs_original)
         _restore_variable_attrs(var_group, var_name, var_attrs_original)
         _add_var_attributes(var_group, nc_info)
         print(f"Total processing time for {var_name}: {(time.time() - var_start_time):.2f} seconds")
 
     # Process root group attributes
-    zarr_root_group = zarr.open_group(store=store, mode='a')
+    zarr_root_group = zarr.open_group(store=zarr_path, mode='a', zarr_version=zarr_version)
     _update_root_attributes(zarr_root_group, nc_paths)
 
     # Add geographical extent information if beginning a new store
@@ -93,24 +95,22 @@ def ncs2zarr(nc_paths, zarr_path, beginning=False):
         _add_root_attributes(zarr_root_group, nc_paths)
 
     # Consolidate Zarr metadata to optimize future access
-    zarr.consolidate_metadata(store)
+    zarr.consolidate_metadata(zarr_path)
     print(f"Conversion completed. Total processing time: {(time.time() - total_start_time):.2f} seconds")
 
 #-----------------------------------------------------------------------------
 # Store initialization and configuration functions
 #-----------------------------------------------------------------------------
 
-def _initialize_zarr_store(zarr_path, beginning):
+def _initialize_zarr_store(store, beginning, zarr_version):
     """Initialize or open the Zarr store based on the 'beginning' flag."""
-    if beginning or not os.path.exists(zarr_path):
-        print(f"Creating new Zarr store at {zarr_path}")
+    if beginning or not os.path.exists(store):
+        print(f"Creating new Zarr store at {store}")
         beginning = True
     else:
-        print(f"Updating Zarr store at {zarr_path}")
+        print(f"Updating Zarr store at {store}")
 
-    store = zarr.DirectoryStore(zarr_path)
-    zarr.group(store=store, overwrite=beginning)
-    return store
+    zarr.group(store=store, overwrite=beginning, zarr_version=zarr_version)
 
 #-----------------------------------------------------------------------------
 # NetCDF data handling functions
@@ -191,7 +191,7 @@ def _combine_netcdf_portions(datasets, ver_dim, hor_dim):
 # Beginning mode processing functions
 #-----------------------------------------------------------------------------
 
-def _process_beginning_mode(store, nc_info):
+def _process_beginning_mode(store, nc_info, zarr_version):
     """
     Process NetCDF in beginning mode with temporal chunking.
 
@@ -220,7 +220,7 @@ def _process_beginning_mode(store, nc_info):
 
     for nc_ds in nc_datasets:
         # Remove problematic attributes that could interfere with Zarr conversion
-        for attr_name in ['_FillValue', 'missing_value', 'units']:
+        for attr_name in ['_FillValue', 'missing_value', 'units', 'valid_range']:
             if attr_name in nc_ds[nc_var].attrs:
                 del nc_ds[nc_var].attrs[attr_name]
             if hasattr(nc_ds[nc_var], 'encoding') and attr_name in nc_ds[nc_var].encoding:
@@ -240,12 +240,12 @@ def _process_beginning_mode(store, nc_info):
     # Process each temporal chunk
     for chunk_idx in range(num_chunks):
         _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_steps,
-                            time_dim, ver_dim, hor_dim, nc_var, var_name, dims_mapping, chunk_shape, nc_info)
+                            time_dim, ver_dim, hor_dim, nc_var, var_name, dims_mapping, chunk_shape, nc_info, zarr_version)
 
     return time_attrs_original, var_attrs_original
 
 def _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_steps,
-                       time_dim, ver_dim, hor_dim, nc_var, var_name, dims_mapping, chunk_shape, nc_info):
+                       time_dim, ver_dim, hor_dim, nc_var, var_name, dims_mapping, chunk_shape, nc_info, zarr_version):
     """
     Process a single time chunk and write it to the Zarr store.
 
@@ -329,7 +329,8 @@ def _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_ste
         'store': store,
         'group': var_name,
         'mode': 'w' if chunk_idx == 0 else 'a',
-        'write_empty_chunks': False
+        'write_empty_chunks': False,
+        'zarr_version': zarr_version
     }
 
     if chunk_idx > 0:
@@ -342,7 +343,7 @@ def _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_ste
 
     # Update min/max attributes after writing to Zarr
     if calc_min_max:
-        var_group = zarr.open_group(store=store, mode='a', path=var_name)
+        var_group = zarr.open_group(store=store, mode='a', path=var_name, zarr_version=zarr_version)
         current_min_val = var_group.attrs.get('minVal', None)
         current_max_val = var_group.attrs.get('maxVal', None)
 
@@ -360,7 +361,7 @@ def _process_time_chunk(nc_datasets, store, chunk_idx, time_chunk_size, time_ste
 # Append mode processing functions
 #-----------------------------------------------------------------------------
 
-def _process_append_mode(store, nc_info):
+def _process_append_mode(store, nc_info, zarr_version):
     """
     Process NetCDF in append mode, adding new time steps or updating existing ones.
     """
@@ -405,20 +406,20 @@ def _process_append_mode(store, nc_info):
 
         # Update existing time or add new time
         if time_val in existing_times:
-            _update_existing_time(store, var_name, time_val, time_slice, existing_times)
+            _update_existing_time(store, var_name, time_val, time_slice, existing_times, zarr_version)
         else:
-            _add_new_time(store, var_name, time_val, time_slice)
+            _add_new_time(store, var_name, time_val, time_slice, zarr_version)
 
     # Close datasets
     for nc_ds in nc_datasets:
         nc_ds.close()
 
-def _update_existing_time(store, var_name, time_val, time_slice, existing_times):
+def _update_existing_time(store, var_name, time_val, time_slice, existing_times, zarr_version):
     """Update data for an existing time step in the Zarr store."""
     print(f"  Date {time_val} already exists in Zarr, updating...")
     existing_index = list(existing_times).index(time_val)
 
-    var_group = zarr.open_group(store=store, mode='a', path=var_name)
+    var_group = zarr.open_group(store=store, mode='a', path=var_name, zarr_version=zarr_version)
     var_array = var_group[var_name]
 
     # Update the main variable
@@ -450,11 +451,11 @@ def _update_existing_time(store, var_name, time_val, time_slice, existing_times)
         if max_val > current_max_val:
             var_group.attrs['maxVal'] = max_val
 
-def _add_new_time(store, var_name, time_val, time_slice):
+def _add_new_time(store, var_name, time_val, time_slice, zarr_version):
     """Add data for a new time step to the Zarr store."""
     print(f"  Date {time_val} not in Zarr, adding...")
 
-    var_group = zarr.open_group(store=store, mode='a', path=var_name)
+    var_group = zarr.open_group(store=store, mode='a', path=var_name, zarr_version=zarr_version)
     var_array = var_group[var_name]
     time_array = var_group[T_DIM]
 
@@ -558,8 +559,8 @@ def _consolidate_time(var_group, var_name, time_attrs_original=None):
         # Delete the original array
         del var_group[T_DIM]
 
-        # Get original fill_value or use NaN
-        original_fill_value = None  # Default value
+        # Get original fill_value or use None
+        original_fill_value = None
         if '_FillValue' in time_attrs:
             original_fill_value = time_attrs['_FillValue']
         elif 'missing_value' in time_attrs:
@@ -571,7 +572,8 @@ def _consolidate_time(var_group, var_name, time_attrs_original=None):
             data=time_data,
             chunks=(len(time_data),),  # A single chunk for the entire dimension
             dtype=time_data.dtype,
-            fill_value=original_fill_value
+            fill_value=original_fill_value,  # Will be None if it was NaN
+            shape=(len(time_data),)
         )
 
         # Restore attributes
