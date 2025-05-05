@@ -44,8 +44,6 @@ To build and deploy the package to Nexus, you can follow these steps:
     $ twine upload --repository-url https://mirror.lcsc.csic.es/repository/pypi-lcsc/ -u pypi -p passwd dist/*1.1.0*
     ```
 
-8. If you want to deploy the package to Nexus with a different version, you can change the version in `setup.py` and repeat steps 5 and 6.
-
 ## Execution
 
 For example, to generate the SEDI zarr from the NetCDF file `SEDI.nc`, you can follow these steps:
