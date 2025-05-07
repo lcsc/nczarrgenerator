@@ -38,7 +38,7 @@ To build and deploy the package to Nexus, you can follow these steps:
     $ python setup.py sdist bdist_wheel
     ```
 
-7. Deploy the package to Nexus:
+7. Deploy the package to Nexus (select the correct version):
 
     ```bash
     $ twine upload --repository-url https://mirror.lcsc.csic.es/repository/pypi-lcsc/ -u pypi -p passwd dist/*1.1.0*
