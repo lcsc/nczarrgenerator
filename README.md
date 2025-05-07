@@ -71,7 +71,7 @@ For example, to generate the SEDI zarr from the NetCDF file `SEDI.nc`, you can f
       nczarrgenerator
     ```
 
-4. Create the script `sedi.py` to generate the SEDI zarr with the following content:
+4. Create the script `sedi.py` in `~/sedi` directory to generate the SEDI zarr with the following content:
 
     ```python
     import warnings
