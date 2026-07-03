@@ -14,5 +14,6 @@ setup(
     ],
     description='Convert multiple NetCDF files to a Zarr store with additional metadata and chunking',
     author='Eduardo Moreno',
-    python_requires='>=3.6',
+    license='GPL-3.0-or-later',
+    python_requires='>=3.11',
 )
