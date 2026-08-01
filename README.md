@@ -162,6 +162,8 @@ Dimension names are normalised to `time`, `y`, `x` regardless of the names used 
 ```
 nczarrgenerator/
 ├── nczarrgenerator/          ← package source (ncs2zarr and helpers)
+│   ├── nczarrgenerator.py    ← current implementation (append mode, temporal chunking, Zarr v2/v3)
+│   └── nczarrgenerator_all.py ← legacy single-pass version, kept for reference (not exported)
 ├── test/                     ← example and test scripts used during development
 ├── VisorServiciosClimaticos/ ← real-world generation scripts (PTI+ Clima viewers)
 ├── Visores-LCSC/             ← real-world generation scripts (LCSC viewers)
