@@ -82,6 +82,7 @@ def ncs2zarr(nc_paths, zarr_path, beginning=False, zarr_version=2):
         print("Consolidating time dimension and restoring/adding attributes...")
         var_group = zarr.open_group(store=zarr_path, mode='a', path=var_name, zarr_version=zarr_version)
         _consolidate_time(var_group, var_name, time_attrs_original)
+        _consolidate_min_max(var_group, var_name)
         _restore_variable_attrs(var_group, var_name, var_attrs_original)
         _add_var_attributes(var_group, nc_info)
         print(f"Total processing time for {var_name}: {(time.time() - var_start_time):.2f} seconds")
@@ -579,6 +580,34 @@ def _consolidate_time(var_group, var_name, time_attrs_original=None):
         # Restore attributes
         for key, value in time_attrs.items():
             var_group[T_DIM].attrs[key] = value
+
+def _consolidate_min_max(var_group, var_name):
+    """
+    Store the per-date min/max arrays as a single chunk.
+
+    They are written with the time chunk of the main variable (chunk_shape[0]),
+    so a client needs one request per chunk to read them at startup.
+    """
+    for name in (f"{var_name}_min", f"{var_name}_max"):
+        if name not in var_group:
+            continue
+        old_array = var_group[name]
+        data = old_array[:]
+        attrs = dict(old_array.attrs)  # includes _ARRAY_DIMENSIONS, needed by xarray
+        compressor, fill_value = old_array.compressor, old_array.fill_value
+
+        del var_group[name]
+
+        var_group.create_dataset(
+            name,
+            data=data,
+            chunks=(len(data),),  # A single chunk for the entire dimension
+            dtype=data.dtype,
+            compressor=compressor,
+            fill_value=fill_value,
+            shape=(len(data),)
+        )
+        var_group[name].attrs.update(attrs)
 
 def _add_var_attributes(var_group, nc_info):
     """Add useful metadata attributes to the variable group."""
