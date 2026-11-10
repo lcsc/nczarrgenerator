@@ -1,3 +1,43 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+#####################################################################
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>
+# <http://www.gnu.org/licenses/gpl.txt/>.
+#####################################################################
+
+"""
+Generación del zarr de spei
+===========================
+Generación del zarr de spei (The zarr way), una variable por escala del mapa.
+
+Authors
+-------
+- Manuel Arretxea-Iriarte; Physics of climate and climate change, IGEO, CSIC
+  (https://igeo.ucm-csic.es/)
+
+Version: 1.0.0
+License: GPL version 3 or newer
+"""
+
+__title__ = "Generación del zarr de spei"
+__version__ = "1.0.0"
+__license__ = "GPL-3.0-or-later"
+__author__ = (
+    "Manuel Arretxea-Iriarte"
+)
+
 import os
 import sys
 import argparse
